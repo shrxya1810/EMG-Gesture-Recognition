@@ -76,7 +76,7 @@ EMG-Gesture-Recognition/
 Clone repo
 
 ```
-git clone https://github.com/yourusername/EMG-Gesture-Recognition.git
+git clone https://github.com/shrxya1810/EMG-Gesture-Recognition.git
 cd EMG-Gesture-Recognition
 ```
 
