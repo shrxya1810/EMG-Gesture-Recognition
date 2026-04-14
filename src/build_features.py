@@ -1,28 +1,44 @@
-import glob
+from pathlib import Path
+import numpy as np
 import pandas as pd
-from data_loader import *
-from preprocessing import *
-from segmentation import *
-from features import *
 
-rows=[]
+from data_loader import load_subject, filter_gestures
+from preprocessing import preprocess
+from features import extract_all
 
-files=glob.glob("data/raw/**/*.mat",recursive=True)
+RAW_DIR = Path("data/raw")
+WINDOW_SIZE = 40
+STEP = 20
+MIN_PURITY = 0.90   # keep only mostly-pure windows
 
-for f in files:
+rows = []
 
-    emg,labels=load_subject(f)
-    emg,labels=filter_gestures(emg,labels)
+mat_files = sorted(RAW_DIR.rglob("*E2*.mat"))   # ONLY exercise 2
 
-    emg=preprocess(emg)
+for mat_path in mat_files:
+    print(f"Processing {mat_path}")
 
-    windows,y=sliding_window(emg,labels)
+    emg, labels = load_subject(mat_path)
+    emg, labels = filter_gestures(emg, labels)
 
-    for w,l in zip(windows,y):
+    labels = labels.astype(int)
+    emg = preprocess(emg)
 
-        feats=extract_all(w)
-        rows.append(feats+[l])
+    for start in range(0, len(emg) - WINDOW_SIZE + 1, STEP):
+        window = emg[start:start + WINDOW_SIZE]
+        window_labels = labels[start:start + WINDOW_SIZE]
 
-df=pd.DataFrame(rows)
+        # dominant label in this window
+        label = np.bincount(window_labels).argmax()
+        purity = np.mean(window_labels == label)
 
-df.to_csv("features.csv",index=False)
+        # skip transition windows
+        if purity < MIN_PURITY:
+            continue
+
+        feats = extract_all(window)
+        rows.append(feats + [label])
+
+df = pd.DataFrame(rows)
+df.to_csv("features.csv", index=False)
+print("Saved features.csv with shape:", df.shape)
