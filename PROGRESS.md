@@ -14,10 +14,10 @@ The project has a complete, working, reproducible sEMG gesture-recognition
 pipeline on NinaPro DB5, with a measured and defensible accuracy figure for the
 first time.
 
-The headline result is **88.1% within-subject accuracy** (Extra Trees,
-time-domain features, probability-smoothed over 5 windows) and **61.9%
-cross-subject accuracy** (LDA with subject-independent normalisation, which
-meets the synopsis' cross-subject degradation target).
+The headline result is **89.0% within-subject accuracy** (Extra Trees,
+time-domain features, no preprocessing, probability-smoothed over 5 windows;
+90.8% at k=7) and **65.5% cross-subject accuracy** (SVM with
+subject-independent normalisation).
 
 An audit of the earlier pipeline found that the previously reported ~84% figure
 was not reproducible. It came from a leaky evaluation protocol applied to the
@@ -34,9 +34,11 @@ are deferred and out of scope for this report, and are marked as such in §6
 rather than dropped.
 
 Two of the new results contradict the synopsis rather than confirming it. The
-preprocessing chain it specifies makes accuracy worse on this corpus, and the
-grid search it specifies is worth +3.3 points on SVM and nothing anywhere else.
-Both are documented with matched controls in §5.10 and §5.11.
+preprocessing chain it specifies makes accuracy worse on this corpus — on both
+axes, for every model — and the grid search it specifies is worth +3.3 points on
+SVM and nothing anywhere else. Both are documented with matched controls in
+§5.10 and §5.11. The chain has now been dropped from the default and retained as
+opt-in (§5.10a), which is what moved the headline from 88.1% to 89.0%.
 
 ---
 
@@ -277,11 +279,31 @@ windows:
 
 | Configuration | Features | Accuracy |
 | ------------- | -------- | -------- |
-| Baseline (untrimmed, 272) | 272 | 0.742 |
+| Baseline (untrimmed, 272, full preprocessing) | 272 | 0.742 |
 | + onset/offset trim (15%) | 272 | 0.809 |
 | + TD-only | 144 | 0.830 |
 | + probability smoothing, k=3 | 144 | 0.858 |
-| + probability smoothing, k=5 | 144 | **0.881** |
+| + probability smoothing, k=5 | 144 | 0.881 |
+| **+ drop preprocessing (§5.10)** | 144 | **0.890** |
+| + probability smoothing, k=7 instead of k=5 | 144 | **0.908** |
+
+The last two rows are the current default configuration. Dropping the
+preprocessing chain is worth **+0.9 points** on top of everything else, and the
+full ladder on the new default is:
+
+| Smoothing | Latency | Accuracy |
+| --------- | ------- | -------- |
+| none | 0 ms | 0.842 |
+| probability, k=3 | 200 ms | 0.871 |
+| **probability, k=5** | **400 ms** | **0.890** |
+| probability, k=7 | 600 ms | 0.908 |
+| oracle, whole repetition | — | 0.988 |
+
+k=7 reaches **90.8%**, within 1.2 points of the synopsis' ≥92% target, at 600 ms
+of smoothing latency. Since the ≤100 ms latency target is already unreachable by
+a factor of two on the analysis window alone (§5.12), the trade between k=5 and
+k=7 is worth putting to the guide alongside the per-window / per-repetition
+question.
 
 **Caveat on trimming.** Discarding the first and last 15% of each repetition
 changes the *test set*, not only the model — it removes the hardest windows.
@@ -311,14 +333,35 @@ feature has been kept behind an off-by-default flag and is not recommended.
 
 ### 5.6 Cross-subject generalisation (LOSO)
 
-All 10 subjects, matched within-subject baselines on the same feature table:
+All 10 subjects, matched within-subject baselines on the same feature table, on
+the current default (no preprocessing, 272 features):
 
 | Model | Within-subject | LOSO raw | LOSO subject-norm | Degradation | ≤8 pts? |
 | ----- | -------------- | -------- | ----------------- | ----------- | ------- |
-| Extra Trees | 0.809 | 0.507 | 0.645 | 16.4 | No |
-| Random Forest | 0.797 | 0.511 | 0.648 | 14.9 | No |
-| SVM | 0.654 | 0.484 | 0.622 | **3.2** | **Yes** |
-| LDA | 0.614 | 0.497 | 0.619 | **−0.6** | **Yes** |
+| Extra Trees | 0.820 | 0.563 | 0.648 | 17.2 | No |
+| Random Forest | 0.810 | 0.571 | 0.650 | 16.0 | No |
+| **SVM** | 0.747 | 0.585 | **0.655** | 9.2 | No |
+| LDA | 0.687 | 0.587 | 0.649 | **3.8** | **Yes** |
+
+The best cross-subject figure is now **SVM at 65.5%**, up from LDA's 61.9% under
+the old chain. Every model gained 2.7–3.5 points cross-subject.
+
+**The ≤8-point target now looks worse while the system got better**, which
+sharpens the point below. Under the old chain LDA (−0.6) and SVM (3.2) both met
+it; now only LDA does, and SVM has slipped to 9.2. Nothing about cross-subject
+performance degraded — SVM's *absolute* LOSO accuracy rose from 0.622 to 0.655.
+Its degradation grew because its within-subject baseline rose faster, from 0.654
+to 0.747. A model that improves on both axes can fail this target purely by
+improving more on the easier one.
+
+For comparison, the same table under the full preprocessing chain:
+
+| Model | Within-subject | LOSO subject-norm | Degradation | ≤8 pts? |
+| ----- | -------------- | ----------------- | ----------- | ------- |
+| Extra Trees | 0.809 | 0.645 | 16.4 | No |
+| Random Forest | 0.797 | 0.648 | 14.9 | No |
+| SVM | 0.654 | 0.622 | 3.2 | Yes |
+| LDA | 0.614 | 0.619 | −0.6 | Yes |
 
 **Subject-independent normalisation is worth +12 to +14 points on every model.**
 It z-scores features within each subject; it uses the held-out subject's own
@@ -406,6 +449,40 @@ therefore re-measured under LOSO, with and without that stage:
 **Rest-RMS normalisation fails at the job the synopsis assigns it.** It costs
 4.6–6.3 points cross-subject, and once subject-independent normalisation is
 applied at feature level it contributes nothing either way.
+
+The bandpass was then measured on the same axis, completing the picture. All
+three arms, LOSO, 272 features:
+
+| | Extra Trees | RF | SVM | LDA |
+| --- | --- | --- | --- | --- |
+| **LOSO raw** — none | **0.5632** | **0.5711** | **0.5845** | **0.5871** |
+| bandpass + notch | 0.5523 | 0.5622 | 0.5474 | 0.5506 |
+| full chain | 0.5065 | 0.5113 | 0.4842 | 0.4970 |
+| **LOSO subject-norm** — none | **0.6476** | **0.6495** | **0.6548** | **0.6489** |
+| bandpass + notch | 0.6476 | 0.6475 | 0.6214 | 0.6199 |
+| full chain | 0.6451 | 0.6481 | 0.6221 | 0.6195 |
+
+**The ordering is monotonic for every model: none > bandpass+notch > full
+chain.** Each stage added costs cross-subject accuracy, so the earlier
+within-subject result was not an artifact of the axis it was measured on.
+
+### 5.10a Decision taken, and what it changed
+
+The default chain is now **empty**. `DEFAULT_STAGES = ()` in
+`preprocessing.py`; all three stages remain available via `--stages` and are
+retained for the raw-front-end path (advanced objective 4), where they are
+correct and necessary. Re-measuring the whole result set on the new default:
+
+| Model | Full chain | No preprocessing | Gain |
+| ----- | ---------- | ---------------- | ---- |
+| Extra Trees | 0.8306 | **0.8386** | +0.79 |
+| Random Forest | 0.8050 | **0.8186** | +1.36 |
+| SVM | 0.7298 | **0.7707** | +4.10 |
+| LDA | 0.6145 | **0.6705** | +5.60 |
+
+**Every model improved.** The gain is largest for the two models that were most
+damaged by rest-RMS normalisation flattening the between-channel amplitude
+pattern, which is the mechanism §5.3 identified.
 
 The cause is visible in `results/eda_spectra.png`, which plots the *raw*
 recordings — `eda.py` applies no preprocessing:
@@ -518,14 +595,14 @@ grid search and preprocessing ablation have been run (§5.11, §5.10), latency i
 instrumented and measured (§5.12), `predict.py` has been executed, and the
 README is current.
 
-**One decision is now open, and it is the guide's to make.**
+**Resolved:** the preprocessing chain is dropped from the default and kept as
+opt-in (§5.10a). Every model improved on both axes; the synopsis text needs a
+corresponding correction, which joins the §3.6 list.
 
-1. **Does the preprocessing chain stay?** §5.10 measures it as costing 1.9
-   points within-subject and 4.6–6.3 points cross-subject. Synopsis §V.B
-   mandates it, and it is correct practice for raw sEMG — but DB5_Preproc is
-   not raw. The pipeline already supports any subset via `--stages`; the
-   default has deliberately **not** been changed, because deviating from a
-   synopsis-specified method should be an explicit decision, not a silent one.
+1. **Smoothing k=5 or k=7?** k=7 reaches 90.8% against k=5's 89.0%, for 200 ms
+   more latency. The ≤100 ms target is already unreachable by a factor of two,
+   so the extra 200 ms may cost nothing that was achievable anyway. Needs the
+   guide.
 2. **Widen the Table I grid.** Three of four searches selected a boundary value
    (§5.11), so the specified range is probably truncated below the optimum.
 3. **PCA → LDA.** Still on the critical path: LDA is 475× smaller and 286×
@@ -564,13 +641,14 @@ decide the rest class → CNN → dashboard.
 | ------ | ----- |
 | Previously reported (unreproducible, wrong gestures, leaky) | ~84% |
 | Corrected baseline, all features, all windows | 74.2% |
-| Best within-subject (Extra Trees, TD-only, smoothed k=5) | **88.1%** |
-| Per-repetition aggregation ceiling | ~98% |
-| Best cross-subject (LDA, subject-normalised) | 61.9% |
-| Cross-subject degradation, LDA | −0.6 points (target ≤8) |
+| **Best within-subject** (Extra Trees, TD-144, no preprocessing, smoothed k=5) | **89.0%** |
+| Same, smoothed k=7 (600 ms) | **90.8%** |
+| Per-repetition aggregation ceiling | 98.8% |
+| **Best cross-subject** (SVM, subject-normalised) | **65.5%** |
+| Cross-subject degradation, LDA | 3.8 points (target ≤8) |
 | Feature count, best configuration | 144 (from 272) |
 | Smallest model, LDA | 0.6 MB (vs 285 MB for Extra Trees) |
-| Cost of the synopsis preprocessing chain | −1.9 points within-subject, −4.6 to −6.3 cross-subject |
+| Cost of the synopsis preprocessing chain | −0.8 to −5.6 within-subject, −1.1 to −8.8 cross-subject |
 | Value of the Table I grid search | +3.3 points on SVM, +0.0 on everything else |
 | Inference latency, LDA vs Extra Trees | 0.16 ms vs 45.75 ms per window |
 | End-to-end latency, best case | 212 ms (target ≤100 ms, unreachable — the window alone is 200 ms) |

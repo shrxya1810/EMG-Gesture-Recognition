@@ -16,19 +16,21 @@ The pipeline is implemented end to end and benchmarked. Full write-up in
 
 | Metric | Value |
 | ------ | ----- |
-| Corrected baseline, 272 features, all windows | 0.742 |
-| Best within-subject (Extra Trees, TD-144, smoothed k=5) | **0.881** |
-| Per-repetition aggregation ceiling | ~0.98 |
-| Best cross-subject (LDA, subject-normalised) | 0.619 |
+| Corrected baseline, 272 features, all windows, full preprocessing | 0.742 |
+| **Best within-subject** (Extra Trees, TD-144, no preprocessing, smoothed k=5) | **0.890** |
+| Same at k=7 (600 ms smoothing latency) | 0.908 |
+| Per-repetition aggregation ceiling | 0.988 |
+| **Best cross-subject** (SVM, subject-normalised) | **0.655** |
 
 Two findings that contradict the synopsis, both measured with matched controls:
 
-- **The preprocessing chain costs accuracy.** No preprocessing beats the full
-  bandpass + notch + rest-RMS chain by 1.9 points within-subject, and rest-RMS
-  normalisation costs 4.6–6.3 points cross-subject. DB5_Preproc arrives already
-  filtered — the raw spectra in `results/eda_spectra.png` have a deep 50 Hz null
-  before we touch them. The default has **not** been changed; use `--stages` to
-  pick a chain. See PROGRESS.md §5.10.
+- **The preprocessing chain costs accuracy, so it is off by default.** Measured
+  on both axes: within-subject every model gains 0.8–5.6 points without it, and
+  under LOSO the ordering is monotonic (none > bandpass+notch > full chain) for
+  all four. DB5_Preproc arrives already filtered — the raw spectra in
+  `results/eda_spectra.png` have a deep 50 Hz null before we touch them.
+  `DEFAULT_STAGES = ()`; every stage is still one flag away via `--stages`, and
+  they are correct and necessary for a raw front-end. See PROGRESS.md §5.10.
 - **The Table I grid search is worth +3.3 points on SVM and nothing else.**
   Measured against an untuned run on the same table. Three of four searches
   selected a grid boundary, so the specified range is likely truncated.
@@ -97,7 +99,7 @@ pip install -r requirements.txt
 
 ```
 python3 src/eda.py                        # objective 2: dataset analysis
-python3 src/build_features.py             # -> features.csv (trimmed, 272 features)
+python3 src/build_features.py             # -> features.csv (trimmed, no preprocessing)
 python3 src/train.py --groups TD --label tuned    # objective 5: benchmark + grid search
 python3 src/loso.py                       # advanced 1: cross-subject
 python3 src/ablation.py features          # advanced 2: feature families
@@ -111,31 +113,37 @@ the ablation favours; `--label X` suffixes every output file so a second run
 cannot overwrite the first. Every module runs its own self-check when executed
 directly, e.g. `python3 src/features.py`.
 
-Preprocessing ablation (objective 3) needs one feature table per configuration:
+Preprocessing ablation (objective 3) needs one feature table per configuration.
+`features.csv` is already the no-preprocessing arm, since that is the default:
 
 ```
-python3 src/build_features.py --stages ""             -o feat_none.csv
-python3 src/build_features.py --stages bandpass       -o feat_bp.csv
-python3 src/build_features.py --stages bandpass,notch -o feat_bpn.csv
-python3 src/ablation.py preprocessing feat_none.csv feat_bp.csv feat_bpn.csv features.csv
+python3 src/build_features.py --stages bandpass                 -o feat_bp.csv
+python3 src/build_features.py --stages bandpass,notch           -o feat_bpn.csv
+python3 src/build_features.py --stages bandpass,notch,normalize -o feat_full.csv
+python3 src/ablation.py preprocessing features.csv feat_bp.csv feat_bpn.csv feat_full.csv
 ```
 
-Whether the stage helps cross-subject is a separate question from whether it
-helps within-subject, and the two disagree here — see PROGRESS.md §5.10:
+Whether a stage helps cross-subject is a separate question from whether it helps
+within-subject. They agree here, but only because both were measured — see
+PROGRESS.md §5.10:
 
 ```
-python3 src/loso.py --features feat_bpn.csv --label bpn    # normalisation off
-python3 src/loso.py --features features.csv --label full   # normalisation on
+python3 src/loso.py --features features.csv --label nopp   # nothing applied
+python3 src/loso.py --features feat_bpn.csv --label bpn    # bandpass + notch
+python3 src/loso.py --features feat_full.csv --label full  # the whole chain
 ```
 
 ---
 
 ## Pipeline
 
-**Preprocessing** — 4th-order zero-phase Butterworth bandpass, 50 Hz IIR notch
-(Q = 30), per-channel normalisation to the subject's rest RMS. Applied to the
-continuous recording *before* gestures are selected, so the filters never run
-across a splice.
+**Preprocessing** — available but **off by default** (`DEFAULT_STAGES = ()`).
+The stages are a 4th-order zero-phase Butterworth bandpass, a 50 Hz IIR notch
+(Q = 30), and per-channel normalisation to the subject's rest RMS. When enabled
+they run on the continuous recording *before* gestures are selected, so the
+filters never cross a splice. All three measured worse on DB5_Preproc, which
+arrives already filtered; they are retained for a raw front-end, where they are
+correct and necessary.
 
 **Segmentation** — 200 ms windows (40 samples), 50 % overlap. Windows less than
 90 % pure in their dominant label are dropped, which removes gesture
@@ -173,7 +181,7 @@ matrices, and pairwise Wilcoxon signed-rank tests at α = 0.05.
 | Bandpass 20–450 Hz | 20–95 Hz | DB5 samples at 200 Hz; Nyquist is 100 Hz |
 | LDA solver SVD + shrinkage | solver lsqr + shrinkage | scikit-learn's SVD solver does not support shrinkage |
 | RMS normalisation over 500 ms rest | all rest samples in the recording | same intent, more stable estimate |
-| Preprocessing chain always applied | measured, and it loses | −1.9 pts within-subject, −4.6 to −6.3 cross-subject on DB5_Preproc, which is already filtered. Default unchanged pending the guide's decision |
+| Bandpass + notch + RMS normalisation always applied | off by default, opt-in via `--stages` | Costs 0.8–5.6 pts within-subject and up to 8.8 cross-subject on DB5_Preproc, which is already filtered. Kept in the code for the raw front-end |
 | Windows include onset/offset | first and last 15 % of each repetition dropped | +6.8 pts, but it changes the test set as well as the model |
 | — | Extra Trees | not in the synopsis; kept as the previous best model, flagged in the output |
 

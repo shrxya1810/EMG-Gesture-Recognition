@@ -11,7 +11,7 @@ import pandas as pd
 
 from data_loader import GESTURES, load_subject, subject_id
 from features import FEATURE_NAMES, extract_all
-from preprocessing import STAGES, preprocess
+from preprocessing import DEFAULT_STAGES, STAGES, preprocess
 
 WINDOW_SIZE = 40        # 200 ms at 200 Hz
 STEP = 20               # 50 % overlap
@@ -54,8 +54,8 @@ def trim_transients(labels, frac):
     return out
 
 
-def build(raw_dir="data/raw", stages=STAGES, window=WINDOW_SIZE, step=STEP,
-          trim=TRIM):
+def build(raw_dir="data/raw", stages=DEFAULT_STAGES, window=WINDOW_SIZE,
+          step=STEP, trim=TRIM):
     rows, meta = [], []
 
     for path in sorted(Path(raw_dir).rglob("*E2*.mat")):
@@ -123,9 +123,11 @@ if __name__ == "__main__":
                     help="run the trim_transients checks and exit")
     ap.add_argument("--raw", default="data/raw")
     ap.add_argument("-o", "--out", default="features.csv")
-    ap.add_argument("--stages", default=",".join(STAGES),
-                    help=f"comma-separated subset of {','.join(STAGES)}; "
-                         f"empty string disables preprocessing entirely")
+    ap.add_argument("--stages", default=",".join(DEFAULT_STAGES),
+                    help=f"comma-separated subset of {','.join(STAGES)}. "
+                         f"Default is none: the chain measured worse on DB5 "
+                         f"(PROGRESS.md 5.10). Pass the full chain for a raw "
+                         f"front-end.")
     ap.add_argument("--window", type=int, default=WINDOW_SIZE,
                     help="window length in samples (40 = 200 ms at 200 Hz)")
     ap.add_argument("--step", type=int, default=None,

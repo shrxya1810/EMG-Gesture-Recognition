@@ -23,7 +23,7 @@ from build_features import MIN_PURITY, STEP, WINDOW_SIZE
 from data_loader import GESTURES, load_subject
 from evaluate import select_groups
 from features import FEATURE_NAMES, extract_all
-from preprocessing import preprocess
+from preprocessing import DEFAULT_STAGES, preprocess
 
 
 def windows(emg, labels):
@@ -39,7 +39,8 @@ def main(args):
     model = joblib.load(args.model)
 
     emg, labels, _ = load_subject(args.mat)
-    emg = preprocess(emg, rest_mask=(labels == 0))
+    stages = tuple(s for s in args.stages.split(",") if s)
+    emg = preprocess(emg, rest_mask=(labels == 0), stages=stages)
 
     starts, feats, truth, t_feat = [], [], [], []
     for start, w, label in windows(emg, labels):
@@ -136,6 +137,10 @@ if __name__ == "__main__":
     ap.add_argument("--model", default="models/rf.pkl")
     ap.add_argument("--groups", default="",
                     help="feature families the model was trained on, e.g. TD")
+    ap.add_argument("--stages", default=",".join(DEFAULT_STAGES),
+                    help="preprocessing stages the model was trained with; "
+                         "must match build_features.py or the features shift "
+                         "under the model")
     ap.add_argument("--out", help="write per-window predictions to this CSV")
     ap.add_argument("--latency-csv", help="write the latency summary here")
     ap.add_argument("--latency-windows", type=int, default=500,

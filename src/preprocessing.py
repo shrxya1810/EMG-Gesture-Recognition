@@ -2,7 +2,23 @@ import numpy as np
 from scipy.signal import butter, filtfilt, iirnotch
 
 FS = 200            # NinaPro DB5 sampling rate
+
+# Every stage the pipeline can apply. Synopsis Sec. V.B specifies all three.
 STAGES = ("bandpass", "notch", "normalize")
+
+# What is applied unless asked otherwise: nothing.
+#
+# The stage ablation (PROGRESS.md 5.10) measured the full chain as costing 1.9
+# points within-subject and 4.6-6.3 across subjects on DB5. DB5_Preproc arrives
+# already filtered -- the raw spectra carry a deep 50 Hz null before we touch
+# them -- so the notch is redundant and the 20 Hz high-pass discards real 5-20 Hz
+# energy. Rest-RMS normalisation additionally flattens the between-channel
+# amplitude pattern the classifiers rely on.
+#
+# This is a property of this corpus, not of sEMG. Every stage above is correct
+# and necessary for a raw front-end (the MyoWare path, advanced objective 4);
+# they are kept and opt-in via --stages rather than deleted.
+DEFAULT_STAGES = ()
 
 
 def bandpass(x, fs=FS, low=20, high=95, order=4):
@@ -42,7 +58,7 @@ def normalize(x, rest_mask=None):
     return x / (rms + 1e-8)
 
 
-def preprocess(x, rest_mask=None, stages=STAGES):
+def preprocess(x, rest_mask=None, stages=DEFAULT_STAGES):
     """Apply the preprocessing chain. `stages` selects a subset, for ablation.
 
     Must be given the continuous recording. Masking gestures out first splices
@@ -70,8 +86,10 @@ if __name__ == "__main__":
         spec = np.abs(np.fft.rfft(sig1d))
         return spec[np.argmin(np.abs(np.fft.rfftfreq(len(sig1d), 1 / FS) - f))]
 
-    y = preprocess(x, rest_mask=rest)
+    # explicit: the default chain is empty now, so ask for the full one
+    y = preprocess(x, rest_mask=rest, stages=STAGES)
     assert y.shape == x.shape
+    assert np.allclose(preprocess(x, rest), x), "default must be a no-op"
     assert power_at(y[:, 0], 0) < power_at(x[:, 0], 0) * 0.01, "DC not removed"
     assert power_at(y[:, 0], 50) < power_at(x[:, 0], 50) * 0.5, "50 Hz not notched"
     assert np.all(np.isfinite(y))
