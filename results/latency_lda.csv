@@ -1,0 +1,2 @@
+model,n_features,n_windows,feature_ms_median,feature_ms_p95,inference_ms_median,inference_ms_p95,compute_ms_median,window_fill_ms,end_to_end_ms,meets_100ms
+lda_tuned.pkl,144,1249,12.318459997914033,14.937110601749737,0.15632250142516568,0.17129545285570202,12.474782499339199,200.0,212.4747824993392,False

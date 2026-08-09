@@ -212,6 +212,8 @@ __marimo__/
 # trained model artifacts (large, regenerable)
 models/*.pkl
 
-# feature tables: ~199 MB of variants, all rebuildable with build_features.py
+# feature tables: hundreds of MB of variants, all rebuildable with
+# build_features.py. feat_* are the preprocessing-ablation arms.
 features.csv
 features_*.csv
+feat_*.csv

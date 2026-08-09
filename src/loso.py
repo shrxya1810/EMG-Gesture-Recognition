@@ -17,7 +17,8 @@ from sklearn.model_selection import LeaveOneGroupOut, StratifiedGroupKFold
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
-from evaluate import RESULTS, load_features, per_class_report, save_confusion, window_groups
+from evaluate import (RESULTS, load_features, per_class_report, save_confusion,
+                      select_groups, suffix, window_groups)
 from train import model_zoo
 
 SEED = 42
@@ -82,7 +83,9 @@ def run_loso(X, y, subjects, models):
 
 
 def main(args):
-    X, y, meta, _ = load_features(args.features)
+    X, y, meta, names = load_features(args.features)
+    X, _ = select_groups(X, names, args.groups)
+    sfx = suffix(args.label)
     subjects = meta["subject"].to_numpy()
     models = model_zoo(quick=True)      # fixed params: LOSO is 10 fits a model
 
@@ -102,12 +105,12 @@ def main(args):
         if tag == "subject_norm":
             for name, pred in oof.items():
                 save_confusion(y, pred, f"{name} LOSO ({tag})",
-                               RESULTS / f"confusion_loso_{name}.png")
+                               RESULTS / f"confusion_loso_{name}{sfx}.png")
                 per_class_report(y, pred).to_csv(
-                    RESULTS / f"per_class_loso_{name}.csv", index=False)
+                    RESULTS / f"per_class_loso_{name}{sfx}.csv", index=False)
 
     detail = pd.concat(summaries, ignore_index=True)
-    detail.to_csv(RESULTS / "loso_per_subject.csv", index=False)
+    detail.to_csv(RESULTS / f"loso_per_subject{sfx}.csv", index=False)
 
     summary = (detail.groupby(["model", "normalisation"])["accuracy"]
                      .agg(["mean", "std", "min", "max"]).reset_index())
@@ -116,11 +119,7 @@ def main(args):
                                         - summary["mean"])
     summary["meets_8pt_target"] = summary["degradation_pts"] <= 8
 
-    # ponytail: one fixed output name, so the last run wins. That bit once --
-    # a run on features_trim_align.csv left the discredited aligned numbers
-    # sitting in the canonical file. Suffix by --features if --align survives;
-    # the plan is to delete --align from build_features.py instead.
-    summary.to_csv(RESULTS / "loso_summary.csv", index=False)
+    summary.to_csv(RESULTS / f"loso_summary{sfx}.csv", index=False)
     print("\n" + summary.to_string(index=False))
 
 
@@ -128,4 +127,9 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--features", default="features.csv")
     ap.add_argument("--folds", type=int, default=10)
+    ap.add_argument("--groups", default="",
+                    help="feature families to keep, e.g. TD (default: all 272)")
+    ap.add_argument("--label", default="",
+                    help="suffix for result filenames, so a second run does "
+                         "not overwrite the first")
     main(ap.parse_args())

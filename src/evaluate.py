@@ -11,9 +11,42 @@ from sklearn.metrics import (accuracy_score, confusion_matrix,
 
 from build_features import META_COLUMNS
 from data_loader import GESTURES
+from features import FEATURE_GROUPS
 
 RESULTS = Path("results")
 LABELS = sorted(GESTURES)
+
+
+def select_groups(X, names, groups):
+    """Keep only the named feature families, e.g. "TD" or "TD,FD".
+
+    Empty or None keeps everything. The ablation found TD alone beats the full
+    272, so this is how the winning configuration is selected at train time
+    rather than baked into the feature table.
+    """
+    if not groups:
+        return X, names
+
+    unknown = set(groups.split(",")) - set(FEATURE_GROUPS)
+    if unknown:
+        raise SystemExit(f"unknown feature group(s) {sorted(unknown)}; "
+                         f"known: {sorted(FEATURE_GROUPS)}")
+
+    wanted = {c for g in groups.split(",") for c in FEATURE_GROUPS[g]}
+    cols = [i for i, n in enumerate(names) if n in wanted]
+    if not cols:
+        raise SystemExit(f"no columns matched groups={groups}")
+    return X[:, cols], [names[i] for i in cols]
+
+
+def suffix(label):
+    """"" -> "", "tuned" -> "_tuned".
+
+    train.py and loso.py write fixed filenames, so without this a second run
+    silently overwrites the first. That bit once: a run on the rotation-aligned
+    table left discredited numbers sitting in results/loso_summary.csv.
+    """
+    return f"_{label}" if label else ""
 
 
 def load_features(path="features.csv"):

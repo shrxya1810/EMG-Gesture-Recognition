@@ -16,31 +16,20 @@ from preprocessing import STAGES, preprocess
 WINDOW_SIZE = 40        # 200 ms at 200 Hz
 STEP = 20               # 50 % overlap
 MIN_PURITY = 0.90       # drop windows straddling a gesture boundary
-TRIM = 0.0              # fraction of each repetition to discard at each end
 
-RING = 8                # DB5 stacks two 8-electrode Myo armbands
+# Fraction of each repetition discarded at each end. 0.15 measured +6.8 points
+# over 0.0, but note it changes the test set as well as the model: the honest
+# phrasing is "on steady-state windows". Pass --trim 0 to rebuild the
+# transient-inclusive baseline.
+TRIM = 0.15
 
 META_COLUMNS = ["subject", "gesture", "repetition", "window_start"]
 
-
-def align_rings(emg, mask, ring=RING):
-    """Circularly shift each armband so its strongest channel sits first.
-
-    The Myo sits at a different rotational offset on every forearm, which
-    rotates the whole spatial activation pattern. The EDA measured forearm
-    supination at only 0.16 mean cross-subject correlation with negative
-    minima, i.e. inverted patterns between some subject pairs.
-
-    The shift is computed once per subject from the whole recording, never per
-    window: a per-window shift would move every gesture's peak to channel 0 and
-    destroy exactly the spatial information that separates the gestures.
-    """
-    profile = np.abs(emg[mask]).mean(0)
-    out = emg.copy()
-    for lo in range(0, emg.shape[1], ring):
-        shift = int(np.argmax(profile[lo:lo + ring]))
-        out[:, lo:lo + ring] = np.roll(emg[:, lo:lo + ring], -shift, axis=1)
-    return out
+# Rotation alignment (circularly shifting each armband to its peak channel) was
+# implemented here and removed: it degraded every model and both normalisations,
+# LOSO 0.645 -> 0.467 for Extra Trees. The peak of a mean activation profile is
+# not a stable landmark, and aligning each ring independently destroys the
+# relative offset between the two, which is informative. See PROGRESS.md 5.5.
 
 
 def trim_transients(labels, frac):
@@ -66,7 +55,7 @@ def trim_transients(labels, frac):
 
 
 def build(raw_dir="data/raw", stages=STAGES, window=WINDOW_SIZE, step=STEP,
-          trim=TRIM, align=False):
+          trim=TRIM):
     rows, meta = [], []
 
     for path in sorted(Path(raw_dir).rglob("*E2*.mat")):
@@ -78,9 +67,6 @@ def build(raw_dir="data/raw", stages=STAGES, window=WINDOW_SIZE, step=STEP,
         # filters would ring at every join; it also deletes the rest samples
         # that normalisation needs as its baseline.
         emg = preprocess(emg, rest_mask=(labels == 0), stages=stages)
-
-        if align:
-            emg = align_rings(emg, np.isin(labels, list(GESTURES)))
 
         # trim after the rest mask is taken, so the baseline stays intact
         labels = trim_transients(labels, trim)
@@ -112,8 +98,29 @@ def build(raw_dir="data/raw", stages=STAGES, window=WINDOW_SIZE, step=STEP,
     )
 
 
+def _self_check():
+    """trim_transients is the only non-obvious logic in this module."""
+    labels = np.array([0] * 5 + [6] * 10 + [0] * 5 + [13] * 10 + [0] * 5)
+
+    assert np.array_equal(trim_transients(labels, 0.0), labels), "0 is a no-op"
+
+    out = trim_transients(labels, 0.2)          # 2 samples off each end of 10
+    assert (out == 6).sum() == 6 and (out == 13).sum() == 6, out
+    assert out[5] == 0 and out[6] == 0 and out[7] == 6, out[:10]     # leading
+    assert out[12] == 6 and out[13] == 0 and out[14] == 0, out[10:16]  # trailing
+    # rest stays rest, and nothing new is invented
+    assert set(np.unique(out)) <= set(np.unique(labels))
+    # adjacent repetitions of the same gesture are separate runs
+    two = np.array([6] * 10 + [13] * 10)
+    assert (trim_transients(two, 0.2) == 0).sum() == 8
+
+    print("build_features self-check ok")
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--self-check", action="store_true",
+                    help="run the trim_transients checks and exit")
     ap.add_argument("--raw", default="data/raw")
     ap.add_argument("-o", "--out", default="features.csv")
     ap.add_argument("--stages", default=",".join(STAGES),
@@ -124,14 +131,17 @@ if __name__ == "__main__":
     ap.add_argument("--step", type=int, default=None,
                     help="window increment in samples (default: half the window)")
     ap.add_argument("--trim", type=float, default=TRIM,
-                    help="fraction of each repetition to discard at each end")
-    ap.add_argument("--align", action="store_true",
-                    help="rotation-align each armband's channels per subject")
+                    help=f"fraction of each repetition to discard at each end "
+                         f"(default {TRIM}; pass 0 for the untrimmed baseline)")
     args = ap.parse_args()
+
+    if args.self_check:
+        _self_check()
+        raise SystemExit
 
     df = build(args.raw, tuple(s for s in args.stages.split(",") if s),
                window=args.window, step=args.step or args.window // 2,
-               trim=args.trim, align=args.align)
+               trim=args.trim)
     df.to_csv(args.out, index=False)
 
     print(f"\nsaved {args.out} {df.shape}")

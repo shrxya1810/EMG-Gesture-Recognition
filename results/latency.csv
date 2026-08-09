@@ -1,0 +1,2 @@
+model,n_features,n_windows,feature_ms_median,feature_ms_p95,inference_ms_median,inference_ms_p95,compute_ms_median,window_fill_ms,end_to_end_ms,meets_100ms
+extratrees_tuned.pkl,144,1249,12.88020300125936,15.638543797831517,45.75224650216114,50.76404140036175,58.6324495034205,200.0,258.6324495034205,False

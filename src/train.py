@@ -24,7 +24,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.svm import SVC
 
 from evaluate import (RESULTS, load_features, per_class_report, save_confusion,
-                      window_groups)
+                      select_groups, suffix, window_groups)
 
 MODELS_DIR = Path("models")
 SEED = 42
@@ -128,7 +128,9 @@ def wilcoxon_table(results):
 
 def main(args):
     X, y, meta, feature_names = load_features(args.features)
+    X, feature_names = select_groups(X, feature_names, args.groups)
     groups = window_groups(meta)
+    sfx = suffix(args.label)
 
     print(f"{X.shape[0]} windows, {X.shape[1]} features, "
           f"{meta.subject.nunique()} subjects, {len(np.unique(groups))} groups")
@@ -147,21 +149,22 @@ def main(args):
         canon_acc, canon = canonical_score(res["estimator"], X, y, meta)
 
         report = per_class_report(y, res["oof"])
-        report.to_csv(RESULTS / f"per_class_{name}.csv", index=False)
+        report.to_csv(RESULTS / f"per_class_{name}{sfx}.csv", index=False)
         save_confusion(y, res["oof"], f"{name} (grouped {args.folds}-fold)",
-                       RESULTS / f"confusion_{name}.png")
+                       RESULTS / f"confusion_{name}{sfx}.png")
         if canon is not None:
             save_confusion(*canon, f"{name} (NinaPro repetition split)",
-                           RESULTS / f"confusion_{name}_canonical.png")
+                           RESULTS / f"confusion_{name}_canonical{sfx}.png")
 
         clf = res["estimator"].named_steps["clf"]
         if hasattr(clf, "feature_importances_"):
             (pd.DataFrame({"feature": feature_names,
                            "importance": clf.feature_importances_})
                .sort_values("importance", ascending=False)
-               .to_csv(RESULTS / f"feature_importance_{name}.csv", index=False))
+               .to_csv(RESULTS / f"feature_importance_{name}{sfx}.csv",
+                       index=False))
 
-        joblib.dump(res["estimator"], MODELS_DIR / f"{name.lower()}.pkl")
+        joblib.dump(res["estimator"], MODELS_DIR / f"{name.lower()}{sfx}.pkl")
 
         summary.append({
             "model": name,
@@ -177,11 +180,11 @@ def main(args):
               f"canonical {canon_acc:.4f} | macro-F1 {summary[-1]['macro_f1']:.4f}")
 
     summary = pd.DataFrame(summary).sort_values("cv_mean", ascending=False)
-    summary.to_csv(RESULTS / "model_comparison.csv", index=False)
+    summary.to_csv(RESULTS / f"model_comparison{sfx}.csv", index=False)
 
     pd.DataFrame({r["name"]: r["fold_acc"] for r in results}).to_csv(
-        RESULTS / "fold_accuracy.csv", index_label="fold")
-    wilcoxon_table(results).to_csv(RESULTS / "wilcoxon.csv", index=False)
+        RESULTS / f"fold_accuracy{sfx}.csv", index_label="fold")
+    wilcoxon_table(results).to_csv(RESULTS / f"wilcoxon{sfx}.csv", index=False)
 
     print("\n" + summary.to_string(index=False))
     print(f"\nwrote results to {RESULTS}/ and models to {MODELS_DIR}/")
@@ -191,6 +194,12 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--features", default="features.csv")
     ap.add_argument("--folds", type=int, default=10)
+    ap.add_argument("--groups", default="",
+                    help="feature families to keep, e.g. TD or TD,FD "
+                         "(default: all 272)")
+    ap.add_argument("--label", default="",
+                    help="suffix for result and model filenames, so a second "
+                         "run does not overwrite the first")
     ap.add_argument("--quick", action="store_true",
                     help="skip the grid search and use fixed parameters")
     main(ap.parse_args())

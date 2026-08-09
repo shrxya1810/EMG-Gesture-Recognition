@@ -21,21 +21,29 @@ The pipeline is implemented end to end and benchmarked. Full write-up in
 | Per-repetition aggregation ceiling | ~0.98 |
 | Best cross-subject (LDA, subject-normalised) | 0.619 |
 
-Three caveats worth reading before quoting any of these:
+Two findings that contradict the synopsis, both measured with matched controls:
 
-- **The models in `models/` are the 0.742 configuration.** Trimming, TD-only
-  features and probability smoothing live only in `experiments.py`;
-  `build_features.py` and `train.py` defaults have not been updated, so a fresh
-  clone reproduces the old number.
-- **No grid search has been run.** `best_params` is empty for all four models,
-  so SVM and LDA are scikit-learn defaults.
-- **`results/loso_summary.csv` is the unaligned run.** `loso.py` writes one
-  fixed filename, so a run on `features_trim_align.csv` overwrites it with the
-  discredited aligned numbers. Compare against `loso_summary_unaligned.csv`.
+- **The preprocessing chain costs accuracy.** No preprocessing beats the full
+  bandpass + notch + rest-RMS chain by 1.9 points within-subject, and rest-RMS
+  normalisation costs 4.6–6.3 points cross-subject. DB5_Preproc arrives already
+  filtered — the raw spectra in `results/eda_spectra.png` have a deep 50 Hz null
+  before we touch them. The default has **not** been changed; use `--stages` to
+  pick a chain. See PROGRESS.md §5.10.
+- **The Table I grid search is worth +3.3 points on SVM and nothing else.**
+  Measured against an untuned run on the same table. Three of four searches
+  selected a grid boundary, so the specified range is likely truncated.
+  See PROGRESS.md §5.11.
 
-Implemented: preprocessing, segmentation, features, classifier benchmark, LOSO,
-feature ablation, EDA, offline inference.
-Implemented but never run: preprocessing ablation, grid search, `predict.py`.
+Two caveats before quoting any number:
+
+- **Tuned figures are tune-then-evaluate, not nested CV** — the search sees all
+  the data, so they are mildly optimistic.
+- **`models/*.pkl` are untuned 272-feature models; `models/*_tuned.pkl` are the
+  tuned TD-144 ones.** Pass `--groups TD` to `predict.py` for the latter.
+
+Implemented and run: preprocessing, segmentation, features, classifier
+benchmark with grid search, LOSO, feature ablation, preprocessing ablation, EDA,
+offline inference with latency measurement.
 Not started: 1-D CNN, Streamlit dashboard (Semester VI).
 Deferred: embedded deployment, MyoWare hardware prototype (synopsis advanced
 objectives 3 and 4 — deferred, not cancelled).
@@ -89,16 +97,19 @@ pip install -r requirements.txt
 
 ```
 python3 src/eda.py                        # objective 2: dataset analysis
-python3 src/build_features.py             # -> features.csv
-python3 src/train.py                      # objective 5: classifier benchmark
+python3 src/build_features.py             # -> features.csv (trimmed, 272 features)
+python3 src/train.py --groups TD --label tuned    # objective 5: benchmark + grid search
 python3 src/loso.py                       # advanced 1: cross-subject
 python3 src/ablation.py features          # advanced 2: feature families
-python3 src/predict.py --mat <file.mat>   # offline inference
+python3 src/predict.py --mat <file.mat> --model models/extratrees_tuned.pkl --groups TD
 ```
 
-`src/train.py --quick` skips the Table I grid search when you just want a fast
-pass. Every module runs its own self-check when executed directly, e.g.
-`python3 src/features.py`.
+`build_features.py` trims 15 % off each end of every repetition by default;
+`--trim 0` rebuilds the transient-inclusive baseline. `train.py --quick` skips
+the grid search. `--groups TD` selects the 144-feature time-domain subset that
+the ablation favours; `--label X` suffixes every output file so a second run
+cannot overwrite the first. Every module runs its own self-check when executed
+directly, e.g. `python3 src/features.py`.
 
 Preprocessing ablation (objective 3) needs one feature table per configuration:
 
@@ -107,6 +118,14 @@ python3 src/build_features.py --stages ""             -o feat_none.csv
 python3 src/build_features.py --stages bandpass       -o feat_bp.csv
 python3 src/build_features.py --stages bandpass,notch -o feat_bpn.csv
 python3 src/ablation.py preprocessing feat_none.csv feat_bp.csv feat_bpn.csv features.csv
+```
+
+Whether the stage helps cross-subject is a separate question from whether it
+helps within-subject, and the two disagree here — see PROGRESS.md §5.10:
+
+```
+python3 src/loso.py --features feat_bpn.csv --label bpn    # normalisation off
+python3 src/loso.py --features features.csv --label full   # normalisation on
 ```
 
 ---
@@ -154,6 +173,8 @@ matrices, and pairwise Wilcoxon signed-rank tests at α = 0.05.
 | Bandpass 20–450 Hz | 20–95 Hz | DB5 samples at 200 Hz; Nyquist is 100 Hz |
 | LDA solver SVD + shrinkage | solver lsqr + shrinkage | scikit-learn's SVD solver does not support shrinkage |
 | RMS normalisation over 500 ms rest | all rest samples in the recording | same intent, more stable estimate |
+| Preprocessing chain always applied | measured, and it loses | −1.9 pts within-subject, −4.6 to −6.3 cross-subject on DB5_Preproc, which is already filtered. Default unchanged pending the guide's decision |
+| Windows include onset/offset | first and last 15 % of each repetition dropped | +6.8 pts, but it changes the test set as well as the model |
 | — | Extra Trees | not in the synopsis; kept as the previous best model, flagged in the output |
 
 Level-3 db4 on a 40-sample window exceeds `pywt.dwt_max_level` (= 2), so the
@@ -176,7 +197,8 @@ src/
   loso.py            leave-one-subject-out
   ablation.py        feature and preprocessing ablations
   eda.py             dataset analysis
-  predict.py         offline inference
+  experiments.py     smoothing and configuration sweeps
+  predict.py         offline inference and latency measurement
 data/raw/            dataset (not committed)
 models/              trained models (not committed)
 results/             metrics, confusion matrices, figures

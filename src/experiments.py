@@ -18,8 +18,7 @@ from sklearn.model_selection import StratifiedGroupKFold
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
-from evaluate import RESULTS, load_features, window_groups
-from features import FEATURE_GROUPS
+from evaluate import RESULTS, load_features, select_groups, window_groups
 
 SEED = 42
 FS = 200
@@ -110,10 +109,7 @@ def oracle_vote(pred, meta):
 def main(args):
     X, y, meta, names = load_features(args.features)
 
-    if args.groups:
-        wanted = {c for g in args.groups.split(",") for c in FEATURE_GROUPS[g]}
-        cols = [i for i, n in enumerate(names) if n in wanted]
-        X = X[:, cols]
+    X, names = select_groups(X, names, args.groups)
 
     groups = window_groups(meta)
     step = int(np.median(np.diff(sorted(meta["window_start"].unique()))))

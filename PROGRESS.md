@@ -25,12 +25,18 @@ was not reproducible. It came from a leaky evaluation protocol applied to the
 Section 3 documents this in full. The corrected, honestly-measured baseline was
 74.2%; targeted improvements raised it to 88.1%.
 
-Semester V is the strongest part of the picture, but not finished: of five
-primary objectives, the literature-sheet artifact does not exist, the
-preprocessing ablation is implemented but has never been run, and objective 5
-needs both the 1-D CNN and the grid search. Two of five *advanced* objectives —
-embedded deployment and the MyoWare hardware prototype — are deferred and out of
-scope for this report, and are marked as such in §6 rather than dropped.
+Four of five Semester V primary objectives are now complete. The preprocessing
+stage ablation (§5.10) and the Table I grid search (§5.11) have both been run,
+and inference latency has been measured for the first time (§5.12). What remains
+in Semester V is the 1-D CNN, and the literature-sheet artifact. Two of five
+*advanced* objectives — embedded deployment and the MyoWare hardware prototype —
+are deferred and out of scope for this report, and are marked as such in §6
+rather than dropped.
+
+Two of the new results contradict the synopsis rather than confirming it. The
+preprocessing chain it specifies makes accuracy worse on this corpus, and the
+grid search it specifies is worth +3.3 points on SVM and nothing anywhere else.
+Both are documented with matched controls in §5.10 and §5.11.
 
 ---
 
@@ -370,6 +376,95 @@ than LDA, for a 2–3 point gain in absolute LOSO accuracy. Combined with §5.6 
 where LDA meets the cross-subject degradation target and the trees do not — this
 means **LDA's 61.4% is the number on the critical path**, not Extra Trees' 80.9%.
 
+### 5.10 Preprocessing stage ablation (primary objective 3)
+
+Four feature tables, identical in every respect except the preprocessing chain:
+same 8,288 windows, same class balance, same 272 features. Random Forest,
+5-fold grouped.
+
+| Arm | Accuracy | Marginal effect of the stage added |
+| --- | -------- | ---------------------------------- |
+| **no preprocessing** | **0.8008** | — |
+| + bandpass 20–95 Hz | 0.7907 | **−1.01** |
+| + 50 Hz notch | 0.7936 | +0.29 |
+| + rest-RMS normalisation (the full chain) | 0.7816 | **−1.19** |
+
+**The canonical preprocessing chain costs 1.9 points.** No preprocessing at all
+is the best arm.
+
+Because rest-RMS normalisation is justified in synopsis §V.B as compensation for
+*inter-subject* variation, a within-subject ablation cannot judge it. It was
+therefore re-measured under LOSO, with and without that stage:
+
+| Model | LOSO raw: off → on | LOSO subject-norm: off → on |
+| ----- | ------------------ | --------------------------- |
+| Extra Trees | 0.552 → 0.507 (**−4.6**) | 0.648 → 0.645 (−0.3) |
+| Random Forest | 0.562 → 0.511 (**−5.1**) | 0.648 → 0.648 (+0.1) |
+| SVM | 0.547 → 0.484 (**−6.3**) | 0.621 → 0.622 (+0.1) |
+| LDA | 0.551 → 0.497 (**−5.4**) | 0.620 → 0.619 (−0.1) |
+
+**Rest-RMS normalisation fails at the job the synopsis assigns it.** It costs
+4.6–6.3 points cross-subject, and once subject-independent normalisation is
+applied at feature level it contributes nothing either way.
+
+The cause is visible in `results/eda_spectra.png`, which plots the *raw*
+recordings — `eda.py` applies no preprocessing:
+
+* There is already a deep, sharp null at exactly 50 Hz. **NinaPro ships
+  DB5_Preproc filtered.** Our notch is redundant.
+* Real energy survives between 5 and 20 Hz. The 20 Hz high-pass, taken from
+  Reaz et al. for *raw* clinical sEMG with motion artifact, discards it.
+* Dividing each channel by its own rest RMS flattens the between-channel
+  amplitude pattern — and §5.3 already established that amplitude (`mav`,
+  `rms`, `iemg`, `wl`, `var`) is where the discriminative signal lives.
+
+This is a methodology finding, not a bug: the chain is correct for raw sEMG and
+wrong for an already-preprocessed corpus.
+
+### 5.11 Table I grid search (primary objective 5)
+
+Tuned against an untuned run on the **same** table (trimmed, TD-144), so the
+comparison isolates tuning rather than mixing in trimming and feature selection:
+
+| Model | Untuned | Tuned | Gain from tuning | Selected parameters |
+| ----- | ------- | ----- | ---------------- | ------------------- |
+| Extra Trees | 0.8306 | 0.8306 | **+0.00** | `max_depth=None, n=300` |
+| Random Forest | 0.8030 | 0.8050 | +0.20 | `max_depth=20, n=300` |
+| SVM (RBF) | 0.6969 | **0.7298** | **+3.29** | `C=100, gamma=0.01` |
+| LDA | 0.6145 | 0.6145 | **+0.00** | none — Table I gives LDA no search space |
+
+**The grid search is worth +3.3 points on SVM and nothing measurable on
+anything else.** Quoting the tuned SVM against the old 0.573 baseline would
+credit the search with +15.7 points; roughly 12.4 of those come from trimming
+and the TD-only feature set.
+
+Two caveats that belong next to these numbers:
+
+* **Three of the four searches selected a grid boundary** — `C=100` is the top
+  of `[0.1, 1, 10, 100]`, and `n_estimators=300` the top of `[100, 200, 300]`
+  for both forests. The optimum may lie outside the range Table I specifies.
+* `evaluate_model` is tune-then-evaluate, not nested CV. The search sees all the
+  data, so the tuned figures are mildly optimistic.
+
+### 5.12 Inference latency (measured for the first time)
+
+`predict.py` had never been executed. Running it exposed a real defect first —
+it extracted all 272 features unconditionally, so it could not load a TD-144
+model at all. With that fixed, one window at a time on subject 1:
+
+| Model | Feature extraction | Inference | Compute | + 200 ms window | ≤100 ms? |
+| ----- | ------------------ | --------- | ------- | --------------- | -------- |
+| Extra Trees (300 trees) | 12.88 ms | 45.75 ms | 58.63 ms | 258.6 ms | No |
+| **LDA** | 12.32 ms | **0.16 ms** | 12.47 ms | 212.5 ms | No |
+
+**LDA inference is 286× faster than Extra Trees.** Together with §5.9's 475×
+size difference, the case for LDA on any deployment path is now quantified
+rather than asserted.
+
+The ≤100 ms target is unreachable for every model, and not because of the
+models: filling the 200 ms analysis window exceeds the budget before a single
+feature is computed. This confirms §3.6.4 with a measurement.
+
 ---
 
 ## 6. Objective status
@@ -380,9 +475,9 @@ means **LDA's 61.4% is the number on the critical path**, not Extra Trees' 80.9%
 | - | --------- | ------ |
 | 1 | Literature survey and gap analysis | Substantially done in synopsis §II; the separate *literature sheet* artifact does not exist |
 | 2 | Full EDA on DB5 | **Complete** — `eda.py`, tables and figures in `results/` |
-| 3 | Preprocessing pipeline + stage ablation | Pipeline complete; **ablation implemented but never run** |
+| 3 | Preprocessing pipeline + stage ablation | **Complete** — §5.10, within-subject and cross-subject. The measured answer contradicts the synopsis chain |
 | 4 | 272-feature multi-domain extraction + CSV schema | **Complete**; evidence now favours the 144-feature TD subset |
-| 5 | LDA / SVM / RF / 1-D CNN, metrics, Wilcoxon | LDA, SVM, RF complete with full metrics and Wilcoxon; **1-D CNN not started**; **grid search implemented but never run** |
+| 5 | LDA / SVM / RF / 1-D CNN, metrics, Wilcoxon | LDA, SVM, RF complete with full metrics, Wilcoxon and **grid search (§5.11)**; **1-D CNN not started** |
 
 ### Advanced objectives (Semester VI)
 
@@ -409,7 +504,7 @@ where the synopsis places it, not here.
 | ------ | ------ |
 | ≥92% accuracy | 88.1% per-window; ~98% per-repetition. **Definition must be clarified** |
 | ≤8-point cross-subject degradation | **Met by LDA (−0.6) and SVM (3.2)**; missed by trees |
-| ≤100 ms inference latency | **Never measured**, and unreachable as specified |
+| ≤100 ms inference latency | **Measured (§5.12): 212 ms for LDA, 259 ms for Extra Trees.** Missed by every model — the 200 ms window alone exceeds the budget |
 
 ---
 
@@ -417,24 +512,25 @@ where the synopsis places it, not here.
 
 ### 7.1 Immediate
 
-1. **Fold the measured wins into the default pipeline.** Trimming, TD-only
-   features and probability smoothing currently live only in `experiments.py`.
-   `build_features.py` defaults and `train.py` still produce the 74.2%
-   configuration, and the saved models in `models/` are from that run. A fresh
-   clone currently reproduces the old number.
-2. **Remove the `--align` option** — measured harmful (§5.5).
-3. **Add `features_*.csv` to `.gitignore`** — 199 MB of variant tables are
-   currently stageable.
-4. **Commit.** Nothing has been committed; 23 paths are uncommitted.
-5. **PCA → LDA.** On the critical path for the cross-subject target, and the
-   smallest model by three orders of magnitude. Trimming alone already lifted
-   LDA from 0.527 to 0.614.
-6. **Run the full Table I grid search.** SVM and LDA figures are untuned.
-7. **Run the preprocessing ablation** — required by primary objective 3.
-8. **Add latency instrumentation.** The ≤100 ms target has never been measured
-   for anything; this converts it into a number.
-9. **Execute `predict.py` once** — written but never run.
-10. **Refresh the README** — written before the TD-only and smoothing results.
+Done since the last revision: trimming is now the `build_features.py` default,
+`--align` is deleted, `features_*.csv` is ignored, the work is committed, the
+grid search and preprocessing ablation have been run (§5.11, §5.10), latency is
+instrumented and measured (§5.12), `predict.py` has been executed, and the
+README is current.
+
+**One decision is now open, and it is the guide's to make.**
+
+1. **Does the preprocessing chain stay?** §5.10 measures it as costing 1.9
+   points within-subject and 4.6–6.3 points cross-subject. Synopsis §V.B
+   mandates it, and it is correct practice for raw sEMG — but DB5_Preproc is
+   not raw. The pipeline already supports any subset via `--stages`; the
+   default has deliberately **not** been changed, because deviating from a
+   synopsis-specified method should be an explicit decision, not a silent one.
+2. **Widen the Table I grid.** Three of four searches selected a boundary value
+   (§5.11), so the specified range is probably truncated below the optimum.
+3. **PCA → LDA.** Still on the critical path: LDA is 475× smaller and 286×
+   faster at inference, and within 3 points of the trees cross-subject.
+4. **Nested CV for the tuned figures**, if the mild optimism in §5.11 matters.
 
 ### 7.2 Semester VI
 
@@ -474,3 +570,7 @@ decide the rest class → CNN → dashboard.
 | Cross-subject degradation, LDA | −0.6 points (target ≤8) |
 | Feature count, best configuration | 144 (from 272) |
 | Smallest model, LDA | 0.6 MB (vs 285 MB for Extra Trees) |
+| Cost of the synopsis preprocessing chain | −1.9 points within-subject, −4.6 to −6.3 cross-subject |
+| Value of the Table I grid search | +3.3 points on SVM, +0.0 on everything else |
+| Inference latency, LDA vs Extra Trees | 0.16 ms vs 45.75 ms per window |
+| End-to-end latency, best case | 212 ms (target ≤100 ms, unreachable — the window alone is 200 ms) |
