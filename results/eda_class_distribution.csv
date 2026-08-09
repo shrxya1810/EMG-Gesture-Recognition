@@ -1,0 +1,61 @@
+subject,gesture,name,samples,seconds
+1,5,open hand (finger abduction),4266,21.33
+1,6,closed fist,4081,20.405
+1,9,forearm supination,4604,23.02
+1,10,forearm pronation,4780,23.9
+1,13,wrist flexion,4689,23.445
+1,14,wrist extension,3783,18.915
+10,5,open hand (finger abduction),3605,18.025
+10,6,closed fist,4263,21.315
+10,9,forearm supination,4202,21.01
+10,10,forearm pronation,3912,19.56
+10,13,wrist flexion,4626,23.13
+10,14,wrist extension,4392,21.96
+2,5,open hand (finger abduction),3401,17.005
+2,6,closed fist,3862,19.31
+2,9,forearm supination,3863,19.315
+2,10,forearm pronation,3395,16.975
+2,13,wrist flexion,4545,22.725
+2,14,wrist extension,4116,20.58
+3,5,open hand (finger abduction),3777,18.885
+3,6,closed fist,3440,17.2
+3,9,forearm supination,4303,21.515
+3,10,forearm pronation,3754,18.77
+3,13,wrist flexion,4191,20.955
+3,14,wrist extension,3370,16.85
+4,5,open hand (finger abduction),4227,21.135
+4,6,closed fist,3575,17.875
+4,9,forearm supination,4879,24.395
+4,10,forearm pronation,4022,20.11
+4,13,wrist flexion,5014,25.07
+4,14,wrist extension,4840,24.2
+5,5,open hand (finger abduction),3722,18.61
+5,6,closed fist,3329,16.645
+5,9,forearm supination,4857,24.285
+5,10,forearm pronation,4851,24.255
+5,13,wrist flexion,4254,21.27
+5,14,wrist extension,4521,22.605
+6,5,open hand (finger abduction),4637,23.185
+6,6,closed fist,4430,22.15
+6,9,forearm supination,5249,26.245
+6,10,forearm pronation,5029,25.145
+6,13,wrist flexion,5157,25.785
+6,14,wrist extension,4398,21.99
+7,5,open hand (finger abduction),4038,20.19
+7,6,closed fist,3907,19.535
+7,9,forearm supination,4502,22.51
+7,10,forearm pronation,4820,24.1
+7,13,wrist flexion,4396,21.98
+7,14,wrist extension,3982,19.91
+8,5,open hand (finger abduction),3256,16.28
+8,6,closed fist,4078,20.39
+8,9,forearm supination,4436,22.18
+8,10,forearm pronation,4575,22.875
+8,13,wrist flexion,4556,22.78
+8,14,wrist extension,3190,15.95
+9,5,open hand (finger abduction),3426,17.13
+9,6,closed fist,4183,20.915
+9,9,forearm supination,5293,26.465
+9,10,forearm pronation,4669,23.345
+9,13,wrist flexion,3520,17.6
+9,14,wrist extension,3390,16.95

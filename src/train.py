@@ -1,76 +1,196 @@
+"""Benchmark the classifiers from synopsis Table I.
+
+    python3 src/train.py            # full Table I grid search (slow)
+    python3 src/train.py --quick    # fixed sensible params, for a fast pass
+
+Two protocols are reported:
+  * 10-fold stratified CV, grouped by subject-repetition (leak-free)
+  * the NinaPro convention: train on repetitions 1,3,4,6, test on 2,5
+"""
+import argparse
+from pathlib import Path
+
 import joblib
 import numpy as np
 import pandas as pd
-
+from scipy.stats import wilcoxon
+from sklearn.base import clone
+from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
+from sklearn.ensemble import ExtraTreesClassifier, RandomForestClassifier
+from sklearn.metrics import accuracy_score, f1_score
+from sklearn.model_selection import GridSearchCV, StratifiedGroupKFold
+from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import cross_val_score, StratifiedKFold
 from sklearn.svm import SVC
-from sklearn.ensemble import RandomForestClassifier, ExtraTreesClassifier
 
-print("Loading features...")
-df = pd.read_csv("features.csv")
+from evaluate import (RESULTS, load_features, per_class_report, save_confusion,
+                      window_groups)
 
-X = df.iloc[:, :-1].values
-y = df.iloc[:, -1].values
+MODELS_DIR = Path("models")
+SEED = 42
+CANONICAL_TRAIN_REPS = [1, 3, 4, 6]
+CANONICAL_TEST_REPS = [2, 5]
 
-print("Cleaning data...")
-X[np.isinf(X)] = np.nan
-X = np.nan_to_num(X)
 
-cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+def model_zoo(quick=False):
+    """Search spaces from synopsis Table I.
 
-# -------------------------
-# SVM
-# -------------------------
-print("\n===== Training SVM =====")
+    Table I specifies LDA with solver=SVD *and* Ledoit-Wolf shrinkage, which
+    scikit-learn rejects -- the SVD solver does not support shrinkage. lsqr
+    with shrinkage="auto" is Ledoit-Wolf, so that is used instead.
 
-scaler = StandardScaler()
-Xs = scaler.fit_transform(X)
+    ExtraTrees is not in the synopsis. It is kept because it was the previous
+    best model, and is flagged as off-spec in the output.
+    """
+    return {
+        "LDA": (LinearDiscriminantAnalysis(solver="lsqr", shrinkage="auto"), {}),
+        "SVM": (SVC(kernel="rbf", random_state=SEED),
+                {} if quick else {"clf__C": [0.1, 1, 10, 100],
+                                  "clf__gamma": ["scale", 1e-3, 1e-2]}),
+        "RF": (RandomForestClassifier(n_estimators=300, random_state=SEED,
+                                      n_jobs=-1),
+               {} if quick else {"clf__n_estimators": [100, 200, 300],
+                                 "clf__max_depth": [10, 20, None]}),
+        "ExtraTrees": (ExtraTreesClassifier(n_estimators=300, random_state=SEED,
+                                            n_jobs=-1),
+                       {} if quick else {"clf__n_estimators": [100, 200, 300],
+                                         "clf__max_depth": [10, 20, None]}),
+    }
 
-svm = SVC(kernel="rbf", C=10, gamma="scale")
 
-scores = cross_val_score(svm, Xs, y, cv=cv, n_jobs=-1)
-print("SVM Accuracy:", scores.mean())
+def evaluate_model(name, est, grid, X, y, groups, n_splits):
+    """Grid-search then cross-validate, both grouped by subject-repetition.
 
-svm.fit(Xs, y)
+    This is tune-then-evaluate, not fully nested CV: the search sees all the
+    data, so the reported CV score is mildly optimistic. Full nesting would
+    multiply runtime by the inner fold count, which is what made the earlier
+    grid search impractical.
+    """
+    pipe = Pipeline([("scaler", StandardScaler()), ("clf", est)])
+    best_params = {}
 
-joblib.dump(svm, "models/svm.pkl")
-joblib.dump(scaler, "models/scaler.pkl")
+    if grid:
+        inner = StratifiedGroupKFold(n_splits=5, shuffle=True, random_state=SEED)
+        gs = GridSearchCV(pipe, grid, cv=inner, scoring="accuracy", n_jobs=-1)
+        gs.fit(X, y, groups=groups)
+        pipe, best_params = gs.best_estimator_, gs.best_params_
+        print(f"  best params: {best_params}")
 
-# -------------------------
-# Random Forest
-# -------------------------
-print("\n===== Training RF =====")
+    outer = StratifiedGroupKFold(n_splits=n_splits, shuffle=True,
+                                 random_state=SEED)
+    oof = np.zeros_like(y)
+    fold_acc = []
 
-rf = RandomForestClassifier(
-    n_estimators=600,
-    max_depth=None,
-    n_jobs=-1,
-    random_state=42
-)
+    for k, (tr, te) in enumerate(outer.split(X, y, groups=groups), 1):
+        fitted = clone(pipe).fit(X[tr], y[tr])
+        oof[te] = fitted.predict(X[te])
+        fold_acc.append(accuracy_score(y[te], oof[te]))
+        print(f"  fold {k:2d}/{n_splits}  acc {fold_acc[-1]:.4f}")
 
-scores = cross_val_score(rf, X, y, cv=cv, n_jobs=-1)
-print("RF Accuracy:", scores.mean())
+    return {
+        "name": name,
+        "estimator": clone(pipe).fit(X, y),
+        "best_params": best_params,
+        "fold_acc": np.array(fold_acc),
+        "oof": oof,
+    }
 
-rf.fit(X, y)
-joblib.dump(rf, "models/rf.pkl")
 
-# -------------------------
-# ExtraTrees (usually best)
-# -------------------------
-print("\n===== Training ExtraTrees =====")
+def canonical_score(pipe, X, y, meta):
+    """Held-out score under the NinaPro repetition split."""
+    rep = meta["repetition"].to_numpy()
+    tr = np.isin(rep, CANONICAL_TRAIN_REPS)
+    te = np.isin(rep, CANONICAL_TEST_REPS)
+    if not tr.any() or not te.any():
+        return np.nan, None
+    pred = clone(pipe).fit(X[tr], y[tr]).predict(X[te])
+    return accuracy_score(y[te], pred), (y[te], pred)
 
-et = ExtraTreesClassifier(
-    n_estimators=600,
-    max_depth=None,
-    n_jobs=-1,
-    random_state=42
-)
 
-scores = cross_val_score(et, X, y, cv=cv, n_jobs=-1)
-print("ExtraTrees Accuracy:", scores.mean())
+def wilcoxon_table(results):
+    """Two-sided paired Wilcoxon on per-fold accuracy, alpha = 0.05."""
+    rows = []
+    for i in range(len(results)):
+        for j in range(i + 1, len(results)):
+            a, b = results[i]["fold_acc"], results[j]["fold_acc"]
+            if np.allclose(a, b):
+                stat, p = np.nan, 1.0
+            else:
+                stat, p = wilcoxon(a, b)
+            rows.append({
+                "model_a": results[i]["name"], "model_b": results[j]["name"],
+                "mean_a": a.mean(), "mean_b": b.mean(),
+                "statistic": stat, "p_value": p,
+                "significant": bool(p < 0.05),
+            })
+    return pd.DataFrame(rows)
 
-et.fit(X, y)
-joblib.dump(et, "models/extratrees.pkl")
 
-print("\nDone.")
+def main(args):
+    X, y, meta, feature_names = load_features(args.features)
+    groups = window_groups(meta)
+
+    print(f"{X.shape[0]} windows, {X.shape[1]} features, "
+          f"{meta.subject.nunique()} subjects, {len(np.unique(groups))} groups")
+    if args.quick:
+        print("--quick: skipping the Table I grid search\n")
+
+    RESULTS.mkdir(exist_ok=True)
+    MODELS_DIR.mkdir(exist_ok=True)
+
+    results, summary = [], []
+    for name, (est, grid) in model_zoo(args.quick).items():
+        print(f"\n===== {name} =====")
+        res = evaluate_model(name, est, grid, X, y, groups, args.folds)
+        results.append(res)
+
+        canon_acc, canon = canonical_score(res["estimator"], X, y, meta)
+
+        report = per_class_report(y, res["oof"])
+        report.to_csv(RESULTS / f"per_class_{name}.csv", index=False)
+        save_confusion(y, res["oof"], f"{name} (grouped {args.folds}-fold)",
+                       RESULTS / f"confusion_{name}.png")
+        if canon is not None:
+            save_confusion(*canon, f"{name} (NinaPro repetition split)",
+                           RESULTS / f"confusion_{name}_canonical.png")
+
+        clf = res["estimator"].named_steps["clf"]
+        if hasattr(clf, "feature_importances_"):
+            (pd.DataFrame({"feature": feature_names,
+                           "importance": clf.feature_importances_})
+               .sort_values("importance", ascending=False)
+               .to_csv(RESULTS / f"feature_importance_{name}.csv", index=False))
+
+        joblib.dump(res["estimator"], MODELS_DIR / f"{name.lower()}.pkl")
+
+        summary.append({
+            "model": name,
+            "in_synopsis": name != "ExtraTrees",
+            "cv_mean": res["fold_acc"].mean(),
+            "cv_std": res["fold_acc"].std(),
+            "macro_f1": f1_score(y, res["oof"], average="macro"),
+            "canonical_acc": canon_acc,
+            "best_params": str(res["best_params"]),
+        })
+        print(f"  {name}: CV {summary[-1]['cv_mean']:.4f} "
+              f"+/- {summary[-1]['cv_std']:.4f} | "
+              f"canonical {canon_acc:.4f} | macro-F1 {summary[-1]['macro_f1']:.4f}")
+
+    summary = pd.DataFrame(summary).sort_values("cv_mean", ascending=False)
+    summary.to_csv(RESULTS / "model_comparison.csv", index=False)
+
+    pd.DataFrame({r["name"]: r["fold_acc"] for r in results}).to_csv(
+        RESULTS / "fold_accuracy.csv", index_label="fold")
+    wilcoxon_table(results).to_csv(RESULTS / "wilcoxon.csv", index=False)
+
+    print("\n" + summary.to_string(index=False))
+    print(f"\nwrote results to {RESULTS}/ and models to {MODELS_DIR}/")
+
+
+if __name__ == "__main__":
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--features", default="features.csv")
+    ap.add_argument("--folds", type=int, default=10)
+    ap.add_argument("--quick", action="store_true",
+                    help="skip the grid search and use fixed parameters")
+    main(ap.parse_args())

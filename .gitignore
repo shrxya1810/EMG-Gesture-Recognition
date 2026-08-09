@@ -208,3 +208,10 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# trained model artifacts (large, regenerable)
+models/*.pkl
+
+# feature tables: ~199 MB of variants, all rebuildable with build_features.py
+features.csv
+features_*.csv
