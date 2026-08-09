@@ -76,13 +76,22 @@ def feature_ablation(features_csv, folds):
 
 
 def preprocessing_ablation(csvs, folds):
+    """Score one feature table per arm.
+
+    Each entry may be `label=path`. Label the arms by what they *are*, not by
+    filename: a filename denotes whatever configuration was last written to it,
+    so a bare name silently goes stale the moment a default changes.
+    """
     rows = []
-    for path in csvs:
+    for spec in csvs:
+        arm, _, path = spec.rpartition("=")
+        arm = arm or Path(path).stem
+
         X, y, meta, _ = load_features(path)
         acc, f1 = score(X, y, window_groups(meta), folds)
-        rows.append({"features_file": Path(path).name, "n_windows": len(y),
-                     "accuracy": acc, "macro_f1": f1})
-        print(f"  {Path(path).name:20s} acc {acc:.4f}  f1 {f1:.4f}")
+        rows.append({"arm": arm, "features_file": Path(path).name,
+                     "n_windows": len(y), "accuracy": acc, "macro_f1": f1})
+        print(f"  {arm:22s} acc {acc:.4f}  f1 {f1:.4f}")
 
     df = pd.DataFrame(rows)
     df["delta_vs_first_pts"] = 100 * (df["accuracy"] - df["accuracy"].iloc[0])
@@ -99,7 +108,9 @@ if __name__ == "__main__":
     f.add_argument("--folds", type=int, default=5)
 
     p = sub.add_parser("preprocessing", help="compare preprocessing configs")
-    p.add_argument("csvs", nargs="+")
+    p.add_argument("csvs", nargs="+", metavar="[LABEL=]CSV",
+                   help="one feature table per arm; prefix LABEL= to name the "
+                        "arm by its configuration rather than its filename")
     p.add_argument("--folds", type=int, default=5)
 
     args = ap.parse_args()
