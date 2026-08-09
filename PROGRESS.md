@@ -587,51 +587,67 @@ where the synopsis places it, not here.
 
 ## 7. Pending work
 
-### 7.1 Immediate
+### 7.1 Cleared
 
-Done since the last revision: trimming is now the `build_features.py` default,
-`--align` is deleted, `features_*.csv` is ignored, the work is committed, the
-grid search and preprocessing ablation have been run (§5.11, §5.10), latency is
-instrumented and measured (§5.12), `predict.py` has been executed, and the
-README is current.
+Trimming is the `build_features.py` default; `--align` is deleted;
+`features_*.csv` and `feat_*.csv` are ignored; the work is committed; the grid
+search and preprocessing ablation have been run (§5.11, §5.10); latency is
+instrumented and measured (§5.12); `predict.py` has been executed; the README is
+current; the preprocessing chain is dropped from the default and kept as opt-in
+(§5.10a); and the synopsis errors from §3.6 are corrected in synopsis revision 2,
+which also moves the hardware track to an extended-vision section.
 
-**Resolved:** the preprocessing chain is dropped from the default and kept as
-opt-in (§5.10a). Every model improved on both axes; the synopsis text needs a
-corresponding correction, which joins the §3.6 list.
+### 7.2 Blocking objectives
 
-1. **Smoothing k=5 or k=7?** k=7 reaches 90.8% against k=5's 89.0%, for 200 ms
-   more latency. The ≤100 ms target is already unreachable by a factor of two,
-   so the extra 200 ms may cost nothing that was achievable anyway. Needs the
-   guide.
-2. **Widen the Table I grid.** Three of four searches selected a boundary value
-   (§5.11), so the specified range is probably truncated below the optimum.
-3. **PCA → LDA.** Still on the critical path: LDA is 475× smaller and 286×
-   faster at inference, and within 3 points of the trees cross-subject.
-4. **Nested CV for the tuned figures**, if the mild optimism in §5.11 matters.
+These are required by the synopsis and are what "pending work" means in the
+submitted report.
 
-### 7.2 Semester VI
+1. **1-D CNN** to the Table I specification — three conv layers (64/128/256,
+   kernel 3), BatchNorm, ReLU, global average pooling, FC(128), dropout 0.3,
+   Adam 1e-3, 50 epochs. PyTorch; `torch` is not yet a dependency. Primary
+   objective 5 is incomplete without it. Benchmark to beat: Extra Trees 0.839
+   per-window, 0.890 smoothed, on the same TD-144 table and protocol.
+2. **Decide the rest / no-gesture class.** Gates both the CNN output layer and
+   the dashboard's behaviour, so settle it before building either.
+3. **Streamlit dashboard** — live 16-channel waveform, predicted label and
+   confidence, running accuracy log, built on `predict.py`.
+4. **Literature sheet** artifact, ≥15 papers. Primary objective 1.
 
-11. **1-D CNN** to Table I specification (PyTorch; `torch` is not yet a
-    dependency). Primary objective 5 is incomplete without it.
-12. **Decide the rest / no-gesture class.** It gates both the CNN output layer
-    and the dashboard's behaviour, so it should be settled before either.
-13. **Streamlit dashboard** — live 16-channel waveform, predicted label and
-    confidence, running accuracy log.
-14. **Real-time inference loop** feeding the dashboard, built on `predict.py`.
-15. **Adaptive LMS filter** — §II.B motivates it explicitly; the pipeline is
-    currently fixed-coefficient throughout.
-16. **52-gesture extension**, reserved by §V.A.
-17. **Literature sheet** artifact.
-18. **Correct the six synopsis errors** listed in §3.6.
+### 7.3 Future follow-ups
 
-### 7.3 Sequencing
+Not required by any objective. Recorded so they are not lost; none blocks
+submission.
 
-The rest-class decision is the one item that gates others: it determines the
-CNN's output layer and the dashboard's behaviour, so settling it early avoids
-rebuilding both.
+1. **Widen the Table I grid.** On the full-preprocessing configuration three of
+   four searches selected a boundary value; on the current default it is down to
+   the SVM kernel coefficient and unbounded depth for Extra Trees (§5.11). The
+   specified range is probably truncated below the optimum, so extending
+   `C` past 100, `n_estimators` past 300, and `gamma` past 1e-2 is worth one run.
+2. **PCA → LDA.** LDA is 475× smaller and 286× faster at inference and is within
+   0.6 points of the best model cross-subject. Dimensionality reduction ahead of
+   it is the obvious way to close the within-subject gap without giving up
+   either property.
+3. **Nested cross-validation for the tuned figures.** §5.11 is
+   tune-then-evaluate, so the tuned numbers carry mild optimism. Bounded by the
+   measured value of tuning, which is 3.3 points on one model and ~0 elsewhere,
+   so this only matters if the final report needs the tighter claim.
+4. **Smoothing k=5 or k=7.** k=7 reaches 90.8% against k=5's 89.0% for 200 ms
+   more latency. Since ≤100 ms is unreachable by a factor of two regardless, the
+   extra 200 ms may cost nothing that was achievable. Needs the guide.
+5. **Adaptive LMS filter** — motivated explicitly by synopsis §II.B; the
+   pipeline is fixed-coefficient throughout. Note that §5.10 makes this less
+   attractive than it looked: fixed-coefficient filtering already measures
+   harmful on this corpus.
+6. **52-gesture extension**, reserved by synopsis §V.A.
 
-Recommended order: consolidate and commit → PCA/LDA and latency measurement →
-decide the rest class → CNN → dashboard.
+### 7.4 Sequencing
+
+The rest-class decision gates the two largest remaining items, so settling it
+early avoids building the CNN and the dashboard twice.
+
+Recommended order: decide the rest class → CNN → dashboard → literature sheet.
+The §7.3 follow-ups can run at any point and none is a prerequisite for
+anything else.
 
 ---
 
