@@ -1,7 +1,7 @@
 """Run a trained model over a recording (synopsis: model export / inference).
 
     python3 src/predict.py --mat data/raw/s1/s1/S1_E2_A1.mat \\
-        --model models/extratrees_tuned.pkl --groups TD
+        --model models/extratrees_nopp.pkl --groups TD
 
 Slides the same windows as build_features.py, extracts the same features and
 prints a prediction per window. This is the offline stand-in for the real-time
@@ -134,9 +134,13 @@ def main(args):
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--mat", required=True, help="a NinaPro *E2*.mat recording")
-    ap.add_argument("--model", default="models/rf.pkl")
-    ap.add_argument("--groups", default="",
-                    help="feature families the model was trained on, e.g. TD")
+    # Default to the configuration train.py produces by default, and to the
+    # strongest model on it. Anything else needs --groups/--stages to match.
+    ap.add_argument("--model", default="models/extratrees_nopp.pkl")
+    ap.add_argument("--groups", default="TD",
+                    help="feature families the model was trained on. Defaults "
+                         "to TD to match the default model; pass an empty "
+                         "string for a model trained on all 272")
     ap.add_argument("--stages", default=",".join(DEFAULT_STAGES),
                     help="preprocessing stages the model was trained with; "
                          "must match build_features.py or the features shift "

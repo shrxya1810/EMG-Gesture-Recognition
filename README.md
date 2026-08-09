@@ -40,8 +40,10 @@ Two caveats before quoting any number:
 
 - **Tuned figures are tune-then-evaluate, not nested CV** — the search sees all
   the data, so they are mildly optimistic.
-- **`models/*.pkl` are untuned 272-feature models; `models/*_tuned.pkl` are the
-  tuned TD-144 ones.** Pass `--groups TD` to `predict.py` for the latter.
+- **Only the `*_nopp.pkl` models are kept** — tuned, TD-144, no preprocessing,
+  i.e. the default configuration. Superseded fits were deleted as regenerable;
+  the numbers they produced live in `results/`. Re-create any of them with
+  `train.py --label <name>`.
 
 Implemented and run: preprocessing, segmentation, features, classifier
 benchmark with grid search, LOSO, feature ablation, preprocessing ablation, EDA,
@@ -103,7 +105,7 @@ python3 src/build_features.py             # -> features.csv (trimmed, no preproc
 python3 src/train.py --groups TD --label tuned    # objective 5: benchmark + grid search
 python3 src/loso.py                       # advanced 1: cross-subject
 python3 src/ablation.py features          # advanced 2: feature families
-python3 src/predict.py --mat <file.mat> --model models/extratrees_tuned.pkl --groups TD
+python3 src/predict.py --mat <file.mat>   # offline inference + latency
 ```
 
 `build_features.py` trims 15 % off each end of every repetition by default;
