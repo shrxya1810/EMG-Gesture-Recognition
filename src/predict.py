@@ -24,6 +24,7 @@ from data_loader import GESTURES, load_subject
 from evaluate import select_groups
 from features import FEATURE_NAMES, extract_all
 from preprocessing import DEFAULT_STAGES, preprocess
+from rest_gate import K, calibrate, is_gesture
 
 
 def windows(emg, labels):
@@ -39,12 +40,23 @@ def main(args):
     model = joblib.load(args.model)
 
     emg, labels, _ = load_subject(args.mat)
+    rest_mask = labels == 0          # untrimmed labels: genuine rest
     stages = tuple(s for s in args.stages.split(",") if s)
-    emg = preprocess(emg, rest_mask=(labels == 0), stages=stages)
+    emg = preprocess(emg, rest_mask=rest_mask, stages=stages)
+
+    # Calibrate on the preprocessed signal so the ratio survives --stages.
+    rest_mav = calibrate(emg, rest_mask)
 
     starts, feats, truth, t_feat = [], [], [], []
+    gated_starts, gated_truth = [], []
     for start, w, label in windows(emg, labels):
         if args.gestures_only and label not in GESTURES:
+            continue
+        # Gate before extracting features, not after: on a resting arm this
+        # skips the 12.3 ms that feature extraction costs (PROGRESS.md 5.12).
+        if args.rest_k and not is_gesture(w, rest_mav, args.rest_k):
+            gated_starts.append(start)
+            gated_truth.append(label)
             continue
         t0 = time.perf_counter()
         f = extract_all(w)
@@ -86,10 +98,37 @@ def main(args):
     if hasattr(model, "predict_proba"):
         out["confidence"] = model.predict_proba(F).max(axis=1)
 
+    if gated_starts:
+        # Gated windows are predictions too -- label 0, the class the model
+        # was never trained on. They belong in the output, not dropped from it.
+        out = pd.concat([out, pd.DataFrame({
+            "window_start": gated_starts,
+            "time_s": np.asarray(gated_starts) / 200.0,
+            "predicted": 0,
+            "predicted_name": "rest",
+            "true": gated_truth,
+        })], ignore_index=True).sort_values("window_start", ignore_index=True)
+
     scored = out.dropna(subset=["true"])
     if len(scored):
         acc = float((scored["predicted"] == scored["true"]).mean())
         print(f"{len(scored)} labelled windows, accuracy {acc:.4f}")
+
+    if args.rest_k:
+        # The gate is a two-class decision and is scored as one. Six-class
+        # accuracy above is only meaningful on the windows it passed.
+        t = scored["true"]
+        n_rest, n_gest = int((t == 0).sum()), int(t.isin(GESTURES).sum())
+        passed = scored["predicted"] != 0
+        print(f"\nrest gate: k={args.rest_k} x resting MAV {rest_mav:.3f} "
+              f"= {args.rest_k * rest_mav:.3f}")
+        print(f"  gated {len(gated_starts)}/{len(out)} windows before features")
+        if n_rest:
+            print(f"  rest rejected  {1 - passed[t == 0].mean():.4f} "
+                  f"({n_rest} true-rest windows)")
+        if n_gest:
+            print(f"  gestures kept  {passed[t.isin(GESTURES)].mean():.4f} "
+                  f"({n_gest} true-gesture windows)")
 
     ms = lambda v: 1000 * np.asarray(v)
     feat_ms, inf_ms = ms(t_feat), ms(t_inf)
@@ -151,4 +190,8 @@ if __name__ == "__main__":
                     help="how many windows to time individually")
     ap.add_argument("--gestures-only", action="store_true",
                     help="score only windows labelled with one of the six gestures")
+    ap.add_argument("--rest-k", type=float, default=K,
+                    help="rest gate threshold, in multiples of the recording's "
+                         "resting MAV. 0 disables the gate and restores the "
+                         "always-predict-a-gesture behaviour")
     main(ap.parse_args())
