@@ -9,7 +9,7 @@ import pandas as pd
 from sklearn.metrics import (accuracy_score, confusion_matrix,
                              precision_recall_fscore_support)
 
-from build_features import META_COLUMNS
+from build_features import META_COLUMNS, PROV_COLUMNS
 from data_loader import GESTURES
 from features import FEATURE_GROUPS
 
@@ -64,7 +64,11 @@ def load_features(path="features.csv"):
             f"schema -- rebuild it with src/build_features.py."
         )
 
-    feats = df.drop(columns=META_COLUMNS)
+    # Provenance columns are optional: tables built before PROV_COLUMNS existed
+    # still load, and report as "unrecorded" rather than failing.
+    meta_cols = META_COLUMNS + [c for c in PROV_COLUMNS if c in df.columns]
+
+    feats = df.drop(columns=meta_cols)
     X = feats.to_numpy(dtype=float)
 
     n_bad = int(np.sum(~np.isfinite(X)))
@@ -73,7 +77,20 @@ def load_features(path="features.csv"):
               f"({100 * n_bad / X.size:.3f}% of the table) replaced with 0")
         X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
 
-    return X, df["gesture"].to_numpy(), df[META_COLUMNS], list(feats.columns)
+    return X, df["gesture"].to_numpy(), df[meta_cols], list(feats.columns)
+
+
+def provenance(meta, groups):
+    """What a training run should record about its inputs.
+
+    `groups` comes from the caller because feature selection happens at train
+    time, not build time; everything else is read back out of the table.
+    """
+    def got(c):
+        return str(meta[c].iloc[0]) if c in meta.columns and len(meta) else "unrecorded"
+
+    return {"features": groups or "all(272)", "stages": got("stages"),
+            "trim": got("trim"), "window": got("window"), "step": got("step")}
 
 
 def window_groups(meta):

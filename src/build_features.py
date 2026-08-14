@@ -25,6 +25,13 @@ TRIM = 0.15
 
 META_COLUMNS = ["subject", "gesture", "repetition", "window_start"]
 
+# How this table was built, written into the table itself. Constant down every
+# row, which is wasteful and worth it: a feature file with no provenance cannot
+# be compared to another one, and `features_untrimmed.csv` was built under the
+# since-dropped preprocessing chain with nothing recording that. Optional on
+# read, so tables predating this still load.
+PROV_COLUMNS = ["stages", "trim", "window", "step"]
+
 # Rotation alignment (circularly shifting each armband to its peak channel) was
 # implemented here and removed: it degraded every model and both normalisations,
 # LOSO 0.645 -> 0.467 for Extra Trees. The peak of a mean activation profile is
@@ -91,8 +98,12 @@ def build(raw_dir="data/raw", stages=DEFAULT_STAGES, window=WINDOW_SIZE,
     if not rows:
         raise SystemExit(f"no windows built from {raw_dir} -- is the data there?")
 
+    prov = pd.DataFrame(
+        [[",".join(stages) or "none", trim, window, step]] * len(meta),
+        columns=PROV_COLUMNS)
+
     return pd.concat(
-        [pd.DataFrame(meta, columns=META_COLUMNS),
+        [pd.DataFrame(meta, columns=META_COLUMNS), prov,
          pd.DataFrame(rows, columns=FEATURE_NAMES)],
         axis=1,
     )
