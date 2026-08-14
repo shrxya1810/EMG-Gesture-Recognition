@@ -1,0 +1,2 @@
+model,in_synopsis,widths,n_params,epochs,cv_mean,cv_std,macro_f1
+CNN,True,"32,64,128",50214,50,0.7164675538080225,0.026669258601375753,0.7199559662975892
