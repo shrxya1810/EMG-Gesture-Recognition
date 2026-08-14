@@ -22,7 +22,11 @@ from evaluate import RESULTS, load_features, select_groups, window_groups
 
 SEED = 42
 FS = 200
-VOTE_K = (3, 5, 7)
+# k=9 and k=11 extend the ladder past the synopsis' >=92% target, which
+# mav+rms clears at k=9. They cost 800 and 1000 ms of smoothing latency, well
+# past the 200-300 ms clinical bound of section II.E, so they are reported as
+# what the target costs rather than as a recommended operating point.
+VOTE_K = (3, 5, 7, 9, 11)
 
 
 def models():

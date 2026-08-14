@@ -36,6 +36,15 @@ FEATURE_GROUPS = {
     "DWT": [f"ch{c:02d}_{n}" for c in range(N_CHANNELS) for n in DWT_NAMES],
 }
 
+# Every individual statistic is selectable too, so `--groups mav,rms` picks the
+# 16 or 32 column subset without a second mechanism. Worth having because the
+# families are not the right granularity: mav alone (16 columns) scores 0.854
+# against TD's 0.842, so the useful subset is smaller than any family.
+FEATURE_GROUPS.update({
+    n: [f"ch{c:02d}_{n}" for c in range(N_CHANNELS)]
+    for n in TD_NAMES + FD_NAMES + DWT_NAMES
+})
+
 
 def mav(x): return np.mean(np.abs(x))
 def rms(x): return np.sqrt(np.mean(x ** 2))
@@ -155,7 +164,18 @@ if __name__ == "__main__":
     quiet[::2] *= -1
     assert zc(quiet[:, 0]) == 0, "deadzone not suppressing sub-threshold noise"
 
-    assert set(FEATURE_GROUPS) == {"TD", "FD", "DWT"}
-    assert sum(len(v) for v in FEATURE_GROUPS.values()) == 272
+    families = {"TD", "FD", "DWT"}
+    stats = set(TD_NAMES + FD_NAMES + DWT_NAMES)
+    assert set(FEATURE_GROUPS) == families | stats
+    assert not (families & stats), "a statistic must not shadow a family name"
+
+    # the three families still partition the 272 columns
+    assert sum(len(FEATURE_GROUPS[f]) for f in families) == 272
+    # every per-statistic group is one column per channel, and selecting all of
+    # them is the same set as selecting all three families
+    assert all(len(FEATURE_GROUPS[s]) == N_CHANNELS for s in stats)
+    assert ({c for s in stats for c in FEATURE_GROUPS[s]}
+            == {c for f in families for c in FEATURE_GROUPS[f]})
+    assert len(FEATURE_GROUPS["mav"]) + len(FEATURE_GROUPS["rms"]) == 32
 
     print("features self-check ok:", len(feats), "features")
