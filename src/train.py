@@ -23,8 +23,8 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.svm import SVC
 
-from evaluate import (RESULTS, load_features, per_class_report, save_confusion,
-                      select_groups, suffix, window_groups)
+from evaluate import (RESULTS, load_features, per_class_report, provenance,
+                      save_confusion, select_groups, suffix, window_groups)
 
 MODELS_DIR = Path("models")
 SEED = 42
@@ -79,11 +79,21 @@ def evaluate_model(name, est, grid, X, y, groups, n_splits):
     outer = StratifiedGroupKFold(n_splits=n_splits, shuffle=True,
                                  random_state=SEED)
     oof = np.zeros_like(y)
+    classes = np.unique(y)
+    # Out-of-fold probabilities as well as labels, so report.py can apply the
+    # smoothing ladder without refitting. SVC has no predict_proba unless it is
+    # built with probability=True, which Table I does not ask for; those models
+    # get a one-hot stand-in and can only be majority-voted, not averaged.
+    oof_p = np.zeros((len(y), len(classes)))
     fold_acc = []
 
     for k, (tr, te) in enumerate(outer.split(X, y, groups=groups), 1):
         fitted = clone(pipe).fit(X[tr], y[tr])
         oof[te] = fitted.predict(X[te])
+        if hasattr(fitted, "predict_proba"):
+            oof_p[te] = fitted.predict_proba(X[te])
+        else:
+            oof_p[te, np.searchsorted(classes, oof[te])] = 1.0
         fold_acc.append(accuracy_score(y[te], oof[te]))
         print(f"  fold {k:2d}/{n_splits}  acc {fold_acc[-1]:.4f}")
 
@@ -93,6 +103,9 @@ def evaluate_model(name, est, grid, X, y, groups, n_splits):
         "best_params": best_params,
         "fold_acc": np.array(fold_acc),
         "oof": oof,
+        "oof_proba": oof_p,
+        "classes": classes,
+        "hard_only": not hasattr(pipe, "predict_proba"),
     }
 
 
@@ -131,6 +144,8 @@ def main(args):
     X, feature_names = select_groups(X, feature_names, args.groups)
     groups = window_groups(meta)
     sfx = suffix(args.label)
+    prov = provenance(meta, args.groups)
+    print(f"provenance: {prov}")
 
     print(f"{X.shape[0]} windows, {X.shape[1]} features, "
           f"{meta.subject.nunique()} subjects, {len(np.unique(groups))} groups")
@@ -164,11 +179,18 @@ def main(args):
                .to_csv(RESULTS / f"feature_importance_{name}{sfx}.csv",
                        index=False))
 
+        proba = pd.DataFrame(res["oof_proba"],
+                             columns=[f"p_{c}" for c in res["classes"]])
+        pd.concat([meta.reset_index(drop=True), proba], axis=1).to_csv(
+            RESULTS / f"oof_{name}{sfx}.csv", index=False)
+
+        res["estimator"].provenance_ = dict(prov, label=args.label)
         joblib.dump(res["estimator"], MODELS_DIR / f"{name.lower()}{sfx}.pkl")
 
         summary.append({
             "model": name,
             "in_synopsis": name != "ExtraTrees",
+            **prov,
             "cv_mean": res["fold_acc"].mean(),
             "cv_std": res["fold_acc"].std(),
             "macro_f1": f1_score(y, res["oof"], average="macro"),
