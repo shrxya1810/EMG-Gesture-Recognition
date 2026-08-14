@@ -40,15 +40,17 @@ Two caveats before quoting any number:
 
 - **Tuned figures are tune-then-evaluate, not nested CV** — the search sees all
   the data, so they are mildly optimistic.
-- **Only the `*_nopp.pkl` models are kept** — tuned, TD-144, no preprocessing,
-  i.e. the default configuration. Superseded fits were deleted as regenerable;
-  the numbers they produced live in `results/`. Re-create any of them with
-  `train.py --label <name>`.
+- **One model file per configuration is kept**, suffixed by `--label`:
+  `*_mavrms.pkl` is the current best (32 columns, §5.14), `*_nopp.pkl` the
+  TD-144 default it replaced, plus the tuned and untuned arms and the CNNs.
+  None are committed — `models/` is ignored, and every one is re-creatable with
+  `train.py --label <name>`. The numbers they produced live in `results/`.
 
 Implemented and run: preprocessing, segmentation, features, classifier
 benchmark with grid search, LOSO, feature ablation, preprocessing ablation, EDA,
-offline inference with latency measurement.
-Not started: 1-D CNN, Streamlit dashboard (Semester VI).
+offline inference with latency measurement, the rest gate, the 1-D CNN
+(§5.15 — it loses to every classical model), and the replay dashboard.
+Not started: the literature-sheet artifact (primary objective 1).
 Deferred: embedded deployment, MyoWare hardware prototype (synopsis advanced
 objectives 3 and 4 — deferred, not cancelled).
 
@@ -142,6 +144,41 @@ python3 src/loso.py --features feat_bpn.csv --label bpn    # bandpass + notch
 python3 src/loso.py --features feat_full.csv --label full  # the whole chain
 ```
 
+### Dashboard (advanced objective 5)
+
+```
+streamlit run src/dashboard.py
+```
+
+Replays a recording window by window at its native 100 ms step, showing the
+current 16-channel window, the predicted gesture with its confidence, the true
+label, and a running accuracy. There is no armband — advanced objectives 3 and
+4 are deferred — so this is replay, not live capture.
+
+The sidebar selects the recording, the model, and the `--groups` and `--stages`
+that model was trained with. Those must match: the page checks the feature
+count against the model and refuses in words rather than failing inside
+sklearn. It defaults to S6 and `extratrees_mavrms.pkl`, the strongest
+configuration (§5.14). The first load scores the whole recording and takes a
+minute or two, then caches per (recording, model, groups, stages, gate).
+
+**Condense to gesture zones**, on by default, skips the idle stretches. An E2
+recording is only 11-14 % trained gesture against ~58 % rest, so a straight
+replay is mostly an idle arm; condensing keeps every trained-gesture window
+plus context and thins what surrounds it, which puts the six at 44-49 % of the
+replay and shortens it from ~17 min to ~4.5 min. It never drops a
+trained-gesture window, so the gesture-only figure is identical either way.
+
+**Reading the accuracy.** It is scored over rest plus the six trained gestures.
+Windows straddling a label change, and windows carrying one of the other eleven
+Exercise B gestures, are skipped: `build_features.py` drops both, the model was
+never trained on them and cannot output them, so scoring against them would be
+guaranteed-wrong windows — left in, they cap the figure at 72 % on any model.
+It is still not comparable to the 89-93 % in PROGRESS.md, which additionally
+trims each repetition's transients and excludes rest altogether. Rest dominates
+what remains and the gate clears ~99 % of it, so the page reports the rest and
+gesture halves separately rather than one flattering average.
+
 ---
 
 ## Pipeline
@@ -219,6 +256,7 @@ src/
   rest_gate.py       amplitude gate for rest / no-gesture at inference
   cnn.py             1-D CNN (Table I), raw 16x40 input, same folds as train.py
   report.py          all model scores in one table; per-window predictions
+  dashboard.py       Streamlit replay dashboard (advanced objective 5)
 data/raw/            dataset (not committed)
 models/              trained models (not committed)
 results/             metrics, confusion matrices, figures
