@@ -264,8 +264,8 @@ results/             metrics, confusion matrices, figures
 
 ---
 
-## Authors
+## Author
 
-Shreya Agarwal · Shruti Jha · Ekansh Bansal
+Shreya Agarwal
 School of Electrical Engineering, Manipal Institute of Technology
 Guide: Ms. Vidya Kamath
