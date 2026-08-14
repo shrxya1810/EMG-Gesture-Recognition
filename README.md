@@ -106,13 +106,20 @@ python3 src/train.py --groups TD --label tuned    # objective 5: benchmark + gri
 python3 src/loso.py                       # advanced 1: cross-subject
 python3 src/ablation.py features          # advanced 2: feature families
 python3 src/predict.py --mat <file.mat>   # offline inference + latency
+python3 src/cnn.py --self-check           # objective 5: verify, trains nothing
+python3 src/cnn.py --label spec           # objective 5: 1-D CNN, ~30 min CPU
+python3 src/report.py                     # every model's score, one table
+python3 src/report.py --mat <f.mat> --at 248.9   # + what each predicts there
+streamlit run src/dashboard.py            # advanced 5: replay dashboard
 ```
 
 `build_features.py` trims 15 % off each end of every repetition by default;
 `--trim 0` rebuilds the transient-inclusive baseline. `train.py --quick` skips
-the grid search. `--groups TD` selects the 144-feature time-domain subset that
-the ablation favours; `--label X` suffixes every output file so a second run
-cannot overwrite the first. Every module runs its own self-check when executed
+the grid search. `--groups` selects features, by family (`TD`, `FD`, `DWT`) or
+by individual statistic (`mav`, `rms`, `zc`, …). **`--groups mav,rms` is the
+current best configuration** — 32 columns, 0.856 per-window against TD-144's
+0.842, see PROGRESS.md §5.14. `--label X` suffixes every output file so a
+second run cannot overwrite the first. Every module runs its own self-check when executed
 directly, e.g. `python3 src/features.py`.
 
 Preprocessing ablation (objective 3) needs one feature table per configuration.
@@ -209,6 +216,9 @@ src/
   eda.py             dataset analysis
   experiments.py     smoothing and configuration sweeps
   predict.py         offline inference and latency measurement
+  rest_gate.py       amplitude gate for rest / no-gesture at inference
+  cnn.py             1-D CNN (Table I), raw 16x40 input, same folds as train.py
+  report.py          all model scores in one table; per-window predictions
 data/raw/            dataset (not committed)
 models/              trained models (not committed)
 results/             metrics, confusion matrices, figures
