@@ -217,3 +217,9 @@ models/*.pkl
 features.csv
 features_*.csv
 feat_*.csv
+
+# out-of-fold probability matrices: one row per window per model, ~20 MB a set
+# and regenerable by re-running train.py / cnn.py. The summaries derived from
+# them (model_comparison, fold_accuracy, wilcoxon, per_class) are committed.
+results/oof_*.csv
+results/cnn_oof_*.csv
